@@ -122,7 +122,7 @@ Target Structure:
         if (structuredContent.textContent) {
             resultData.sections.forEach(section => {
                 if (section.type === 'text' && !section.isContentLocked && structuredContent.textContent?.[section.role]) {
-                    (section as TextSection).text = structuredContent.textContent[section.role];
+                    (section as TextSection).content = [{ text: structuredContent.textContent[section.role], style: {} }];
                 }
             });
         }
@@ -194,9 +194,9 @@ Target Structure:
         const defaultTitleStyle = { fontFamily: FONT_FAMILIES[0].family, fontSize: 64, fontWeight: 900, color: '#1F2937', textAlign: 'center' as const, lineHeight: 1.3 };
         const defaultBodyStyle = { fontFamily: FONT_FAMILIES[1].family, fontSize: 24, fontWeight: 400, color: '#374151', textAlign: 'left' as const, lineHeight: 1.8 };
         
-        resultData.sections.push({ id: `title-${Date.now()}`, type: 'text', role: 'title', text: layoutData.title, style: defaultTitleStyle });
+        resultData.sections.push({ id: `title-${Date.now()}`, type: 'text', role: 'title', content: [{ text: layoutData.title, style: {} }], style: defaultTitleStyle });
         layoutData.body.forEach((p: string, i: number) => {
-             resultData.sections.push({ id: `body-${Date.now()}-${i}`, type: 'text', role: 'body', text: p, style: defaultBodyStyle });
+             resultData.sections.push({ id: `body-${Date.now()}-${i}`, type: 'text', role: 'body', content: [{ text: p, style: {} }], style: defaultBodyStyle });
         });
     }
 
@@ -211,11 +211,11 @@ export const adaptArticleToTemplate = async (
 
     const userContent = currentArticle.sections
         .filter(s => s.type === 'text')
-        .map(s => (s as TextSection).text)
+        .map(s => (s as TextSection).content.map(span => span.text).join(''))
         .join('\n\n');
     
     const titleSection = currentArticle.sections.find(s => s.type === 'text' && s.role === 'title');
-    const theme = (titleSection && titleSection.type === 'text') ? titleSection.text : "Untitled";
+    const theme = (titleSection && titleSection.type === 'text') ? titleSection.content.map(s => s.text).join('') : "Untitled";
 
     const newTemplate = newTemplateId ? allTemplates.find(t => t.id === newTemplateId) : null;
     const targetWidth = newTemplate ? newTemplate.width : currentArticle.width;

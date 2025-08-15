@@ -30,6 +30,36 @@ export type GradientStop = {
     position: number; // 0 to 1
 };
 
+// --- NEW: ADVANCED GRADIENT TYPES ---
+export type GradientType = 'linear' | 'radial' | 'conic';
+
+export type RadialGradientShape = 'circle' | 'ellipse';
+
+export type GradientPosition = { x: number, y: number }; // In percentage
+
+export type LinearGradient = {
+    type: 'linear';
+    angle: number;
+    stops: GradientStop[];
+};
+
+export type RadialGradient = {
+    type: 'radial';
+    shape: RadialGradientShape;
+    position: GradientPosition;
+    stops: GradientStop[];
+};
+
+export type ConicGradient = {
+    type: 'conic';
+    angle: number;
+    position: GradientPosition;
+    stops: GradientStop[];
+};
+
+export type Gradient = LinearGradient | RadialGradient | ConicGradient;
+
+
 export interface TextElementData {
     id: string;
     type: 'text';
@@ -58,18 +88,30 @@ export interface TextStyleDefinition {
     fontFamily: string;
     fontSize: number;
     fontWeight: number;
-    color: string;
+    color: string; // Can be a color string or a gradient string
     textAlign: 'left' | 'center' | 'right' | 'justify';
     lineHeight: number;
     letterSpacing?: number; // In pixels
     textShadow?: string; // e.g., '2px 2px 4px rgba(0,0,0,0.5)'
-    textStroke?: string; // e.g., '2px black'
+    textStroke?: string; // e.g., '2px black' or a gradient string
     curve?: number; // From -100 to 100 for WordArt effect
     writingMode?: 'horizontal-tb' | 'vertical-rl'; // For vertical text
     // AI Guardrails
     minFontSize?: number;
     maxFontSize?: number;
 }
+
+// --- NEW: STRUCTURED TEXT SPANS ---
+export interface TextSpanStyle extends Partial<Omit<TextStyleDefinition, 'textAlign' | 'lineHeight' | 'curve' | 'writingMode'>> {
+    // Inherits most styles, allowing for local overrides.
+    // Properties that apply to the whole block are omitted.
+}
+
+export interface TextSpan {
+    text: string; // Pure text content, no HTML.
+    style: TextSpanStyle;
+}
+
 
 // NEW: Base interface for all sections to support flexbox properties and metadata
 export interface SectionBase {
@@ -96,8 +138,9 @@ export interface SectionBase {
 
 export type TextSection = SectionBase & {
     type: 'text';
-    text: string; // Can contain HTML for rich text
-    style: TextStyleDefinition;
+    // `text: string` is replaced by `content: TextSpan[]` for structured styling.
+    content: TextSpan[];
+    style: TextStyleDefinition; // Base style for the entire block
 };
 
 export type ImageSection = SectionBase & {
@@ -252,6 +295,7 @@ export type ResultData = {
     layoutBoxes: LayoutBox[];
     decorations: DecorationElement[];
     prompt: string;
+    previewImageUrl?: string;
 } | {
     type: 'image';
     imageUrl: string;

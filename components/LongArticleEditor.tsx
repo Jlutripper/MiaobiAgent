@@ -1,5 +1,4 @@
 import React, { useState, useRef, useCallback, useLayoutEffect, useEffect } from 'react';
-import { createRoot } from 'react-dom/client';
 import html2canvas from 'html2canvas';
 import { ResultData, ArticleSection, TextSection, ImageSection, AspectRatio, TextStyleDefinition, LongArticleTemplate, DecorationElement, Guide, PosterTemplate } from '../types';
 import { DownloadIcon, XMarkIcon, SpinnerIcon, MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon, ArrowPathIcon, ArrowUpTrayIcon, AddTextIcon, PhotoIcon, SparklesIcon } from './icons';
@@ -10,48 +9,11 @@ import { DecorationPanel } from './DecorationPanel';
 import { EditableDecorationElement } from './EditableDecorationElement';
 import { resizeAndCompressImage } from './utils/imageUtils';
 import { isGradient, parseGradientString } from './utils/colorUtils';
+import { EditableTextSection } from './EditableTextSection';
+import { EditableImageSection } from './EditableImageSection';
 
-const NEW_IMAGE_PLACEHOLDER = `data:image/svg+xml;base64,${btoa(`<svg width="1080" height="600" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="#e9e9e9"/><text x="50%" y="50%" font-family="sans-serif" font-size="48" fill="#a0a0a0" text-anchor="middle" dy=".3em">New Image Block</text></svg>`)}`;
+const NEW_IMAGE_PLACEHOLDER = `data:image/svg+xml;base64,${btoa(`<svg width="1080" height="600" xmlns="http://www.w.w3.org/2000/svg"><rect width="100%" height="100%" fill="#e9e9e9"/><text x="50%" y="50%" font-family="sans-serif" font-size="48" fill="#a0a0a0" text-anchor="middle" dy=".3em">New Image Block</text></svg>`)}`;
 const NEW_DECORATION_PLACEHOLDER = `data:image/svg+xml;base64,${btoa(`<svg width="200" height="200" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="#d1d5db" rx="10"/><text x="50%" y="50%" font-family="sans-serif" font-size="20" fill="#6b7280" text-anchor="middle" dy=".3em">Decoration</text></svg>`)}`;
-
-const parseRichTextForSVG = (html: string): { text: string; style: React.CSSProperties }[] => {
-    if (!html) return [];
-    const container = document.createElement('div');
-    container.innerHTML = html;
-    const segments: { text: string; style: React.CSSProperties }[] = [];
-
-    const traverse = (node: Node, currentStyle: React.CSSProperties) => {
-        if (node.nodeType === Node.TEXT_NODE) {
-            segments.push({ text: node.textContent || '', style: currentStyle });
-        } else if (node.nodeType === Node.ELEMENT_NODE) {
-            const element = node as HTMLElement;
-            let newStyle = { ...currentStyle };
-            switch (element.tagName) {
-                case 'B':
-                case 'STRONG':
-                    newStyle.fontWeight = 'bold';
-                    break;
-                case 'I':
-                case 'EM':
-                    newStyle.fontStyle = 'italic';
-                    break;
-                case 'U':
-                    newStyle.textDecoration = 'underline';
-                    break;
-            }
-            if (element.style.color) newStyle.fill = element.style.color;
-            if (element.style.fontWeight) newStyle.fontWeight = element.style.fontWeight;
-            if (element.style.fontStyle) newStyle.fontStyle = element.style.fontStyle;
-            if (element.style.textDecoration) newStyle.textDecoration = element.style.textDecoration;
-            
-            element.childNodes.forEach(child => traverse(child, newStyle));
-        }
-    };
-
-    container.childNodes.forEach(child => traverse(child, {}));
-    segments.forEach(seg => { seg.text = seg.text.replace(/ /g, "\u00A0") });
-    return segments;
-};
 
 export const LongArticleContent = ({ data, onRendered, selectedId, onElementClick, isFormatPainterActive, children }: { data: ResultData & { type: 'long_article' }, onRendered?: () => void, selectedId?: string | null, onElementClick?: (id: string, type: 'section' | 'decoration') => void, isFormatPainterActive?: boolean, children?: React.ReactNode }) => {
     const { sections, decorations, background, contentContainer, width } = data;
@@ -115,116 +77,33 @@ export const LongArticleContent = ({ data, onRendered, selectedId, onElementClic
         const interactiveClass = onElementClick ? 'cursor-pointer' : '';
         const formatPainterClass = section.type === 'text' && isFormatPainterActive ? 'cursor-copy' : '';
 
-        let sectionContent;
-        if (section.type === 'text') {
-            const textSection = section;
-            const { curve, color, fontFamily, fontSize, fontWeight, textStroke, letterSpacing, lineHeight, textShadow } = textSection.style;
-            const isColorGradient = isGradient(color);
-            const gradientData = isColorGradient ? parseGradientString(color) : null;
-            const gradientId = `grad-${section.id}`;
-            const shadowId = `shadow-${section.id}`;
-            const shadowParts = textShadow?.match(/rgba?\(.+?\)|#([0-9a-fA-F]{3,8})|\S+/g) || [];
-
-            if (curve && curve !== 0) {
-                const pathId = `curve-path-${section.id}`;
-                const bend = -curve;
-                const textStyle: React.CSSProperties = { 
-                    fill: isColorGradient ? `url(#${gradientId})` : color,
-                    fontFamily, 
-                    fontSize: `${fontSize}px`, 
-                    fontWeight, 
-                    letterSpacing: `${letterSpacing || 0}px` 
-                };
-                const strokeParts = textStroke ? textStroke.split(' ') : ['0px', 'none'];
-                const strokeWidth = strokeParts[0];
-                const strokeColor = strokeParts.slice(1).join(' ');
-                const pathDefinition = `M 0,50 Q 50,${50 - bend} 100,50`;
-                const segments = parseRichTextForSVG(textSection.text);
-
-                sectionContent = (
-                    <div
-                        style={{
-                            height: `${fontSize + Math.abs(bend)}px`,
-                            width: '100%',
-                            transform: `rotate(${section.rotation || 0}deg)`,
-                        }}
-                    >
-                        <svg viewBox="0 0 100 100" overflow="visible" width="100%" height="100%">
-                            <defs>
-                                {isColorGradient && gradientData && (
-                                    <linearGradient id={gradientId} gradientTransform={`rotate(${gradientData.angle})`}>
-                                        {gradientData.stops.map((stop) => <stop key={stop.id} offset={`${stop.position * 100}%`} stopColor={stop.color} />)}
-                                    </linearGradient>
-                                )}
-                                {textShadow && shadowParts.length >= 4 && (
-                                     <filter id={shadowId} x="-50%" y="-50%" width="200%" height="200%">
-                                        <feDropShadow dx={shadowParts[0]} dy={shadowParts[1]} stdDeviation={shadowParts[2]} floodColor={shadowParts[3]} />
-                                    </filter>
-                                )}
-                            </defs>
-                            <path id={pathId} d={pathDefinition} fill="none" />
-                            <text style={textStyle} stroke={strokeColor} strokeWidth={strokeWidth} paintOrder="stroke" filter={textShadow ? `url(#${shadowId})` : 'none'}>
-                                <textPath href={`#${pathId}`} startOffset="50%" dominantBaseline="middle" textAnchor="middle">
-                                    {segments.map((segment, i) => <tspan key={i} style={segment.style}>{segment.text}</tspan>)}
-                                </textPath>
-                            </text>
-                        </svg>
-                    </div>
-                );
-            } else {
-                 const flatTextStyle: React.CSSProperties = {
-                    ...textSection.style,
-                    whiteSpace: 'pre-wrap',
-                    overflowWrap: 'break-word',
-                    textAlign: textSection.style.textAlign,
-                    letterSpacing: `${letterSpacing || 0}px`,
-                    lineHeight: lineHeight,
-                    transform: `rotate(${section.rotation || 0}deg)`,
-                    textShadow: textShadow,
-                    WebkitTextStroke: textStroke,
-                    ...(isColorGradient ? {
-                        background: color,
-                        WebkitBackgroundClip: 'text',
-                        backgroundClip: 'text',
-                        color: 'transparent',
-                        WebkitTextFillColor: 'transparent',
-                    } : {
-                        color: color,
-                    })
-                };
-                if (!isColorGradient) {
-                    delete (flatTextStyle as any).background;
-                    delete (flatTextStyle as any).WebkitBackgroundClip;
-                    delete (flatTextStyle as any).backgroundClip;
-                }
-                sectionContent = <div style={flatTextStyle} dangerouslySetInnerHTML={{ __html: textSection.text }} />;
-            }
-        } else {
-            const imageSection = section as ImageSection;
-             sectionContent = <img 
-                src={imageSection.imageUrl} 
-                alt={imageSection.prompt || "AI-generated illustration"} 
-                className="w-full rounded-lg"
-                style={{
-                    height: imageSection.height ? `${imageSection.height}px` : 'auto',
-                    objectFit: imageSection.objectFit || 'contain',
-                    transform: `rotate(${section.rotation || 0}deg)`
-                }}
-            />;
-        }
-
-
         return (
              <div 
                 key={section.id} 
-                className={`transition-all duration-200 ${interactiveClass} ${formatPainterClass} ${isSelected ? 'outline outline-2 outline-blue-500 outline-offset-4 rounded-md' : ''}`}
+                className={`transition-all duration-200 ${interactiveClass} ${formatPainterClass}`}
                 style={{
                     marginTop: `${section.marginTop || 0}px`,
                     marginBottom: `${section.marginBottom || 0}px`,
                 }}
-                onClick={(e) => { e.stopPropagation(); onElementClick?.(section.id, 'section'); }}
             >
-                {sectionContent}
+                {section.type === 'text' ? (
+                    <EditableTextSection 
+                        section={section}
+                        isSelected={isSelected}
+                        isEditing={false} // Always static in this context
+                        onSelect={(e) => { e.stopPropagation(); onElementClick?.(section.id, 'section'); }}
+                        onEnterEditMode={() => {}}
+                        onExitEditMode={() => {}}
+                        onUpdateContent={() => {}}
+                        onSelectionChange={() => {}}
+                    />
+                ) : (
+                    <EditableImageSection
+                        section={section}
+                        isSelected={isSelected}
+                        onSelect={(e) => { e.stopPropagation(); onElementClick?.(section.id, 'section'); }}
+                    />
+                )}
             </div>
         )
     }
@@ -348,6 +227,7 @@ export const LongArticleEditor = ({ initialData, templates, onExit }: LongArticl
   const [backgroundPrompt, setBackgroundPrompt] = useState('');
 
   const editorWrapperRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLDivElement>(null); // Ref for the actual canvas content
   const contentWrapperRef = useRef<HTMLDivElement>(null);
   const [contentHeight, setContentHeight] = useState(0);
 
@@ -509,7 +389,7 @@ export const LongArticleEditor = ({ initialData, templates, onExit }: LongArticl
                 id: newId,
                 type: 'text',
                 role: 'body',
-                text: '新文本段落',
+                content: [{ text: '新文本段落', style: {} }],
                 style: defaultStyle,
                 marginTop: 0,
                 marginBottom: 16,
@@ -599,27 +479,33 @@ export const LongArticleEditor = ({ initialData, templates, onExit }: LongArticl
     setIsExporting(true);
     setSelectedId(null);
     setSelectedType(null);
+    
     await new Promise(res => setTimeout(res, 50));
+    
+    const sourceElement = canvasRef.current;
+    if (!sourceElement) {
+        setIsExporting(false);
+        return;
+    }
 
-    const tempContainer = document.createElement('div');
-    tempContainer.style.position = 'absolute';
-    tempContainer.style.left = '-9999px';
-    tempContainer.style.top = '-9999px';
-    tempContainer.style.width = `${data.width}px`;
-    document.body.appendChild(tempContainer);
-    const root = createRoot(tempContainer);
+    const originalHeight = sourceElement.scrollHeight;
+    const clone = sourceElement.cloneNode(true) as HTMLElement;
+
+    clone.style.position = 'absolute';
+    clone.style.left = '-9999px';
+    clone.style.top = '0px';
+    clone.style.transform = 'none';
+    clone.style.width = `${data.width}px`;
+
+    document.body.appendChild(clone);
 
     try {
-        await new Promise<void>(resolve => {
-            root.render(<React.StrictMode><LongArticleContent data={data} onRendered={resolve} /></React.StrictMode>);
-        });
-        
-        const canvas = await html2canvas(tempContainer.firstChild as HTMLElement, {
+        const canvas = await html2canvas(clone, {
             useCORS: true,
-            scale: 1,
+            scale: 2, // Export at 2x quality
             backgroundColor: null,
             width: data.width,
-            height: (tempContainer.firstChild as HTMLElement).scrollHeight,
+            height: originalHeight,
             allowTaint: true
         });
 
@@ -632,11 +518,11 @@ export const LongArticleEditor = ({ initialData, templates, onExit }: LongArticl
         console.error("Failed to export article:", error);
         alert("抱歉，导出时出错。");
     } finally {
-        root.unmount();
-        document.body.removeChild(tempContainer);
+        document.body.removeChild(clone);
         setIsExporting(false);
     }
   };
+
 
   const renderGuide = (guide: Guide, index: number) => {
     const style: React.CSSProperties = { position: 'absolute' };
@@ -754,7 +640,7 @@ export const LongArticleEditor = ({ initialData, templates, onExit }: LongArticl
                 </aside>
 
                 <main ref={editorWrapperRef} className="flex-grow bg-gray-900 flex items-start justify-center p-4 overflow-hidden relative cursor-grab" onMouseDown={handleWrapperMouseDown} onWheel={handleWheel}>
-                    <div style={{ position: 'absolute', top: 0, left: 0, transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: 'top left' }} onClick={() => { setSelectedId(null); setSelectedType(null); }}>
+                    <div ref={canvasRef} style={{ position: 'absolute', top: pan.y, left: pan.x, transform: `scale(${zoom})`, transformOrigin: 'top left' }} onClick={() => { setSelectedId(null); setSelectedType(null); }}>
                         <div ref={contentWrapperRef} className="shadow-2xl rounded-lg ring-1 ring-white/10 relative" style={{width: data.width}}>
                             <LongArticleContent data={data} selectedId={selectedId} onElementClick={handleElementClick}>
                                 {(data.decorations || []).map(deco => (

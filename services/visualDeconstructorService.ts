@@ -94,8 +94,10 @@ const buildTemplateFromAnalysis = async (
     analysis: ImageAnalysisResult,
     targetDimensions: { width: number; height: number }
 ): Promise<PosterTemplate> => {
+     const textSpanStyleSchema = { type: Type.OBJECT, properties: {} };
+     const textSpanSchema = { type: Type.OBJECT, properties: { text: { type: Type.STRING }, style: textSpanStyleSchema }, required: ['text', 'style'] };
      const textStyleDefinitionSchema = { type: Type.OBJECT, properties: { fontFamily: { type: Type.STRING }, fontSize: { type: Type.NUMBER }, fontWeight: { type: Type.NUMBER }, color: { type: Type.STRING }, textAlign: { type: Type.STRING, enum: ['left', 'center', 'right', 'justify'] }, lineHeight: { type: Type.NUMBER } }, required: ['fontFamily', 'fontSize', 'fontWeight', 'color', 'textAlign', 'lineHeight'] };
-     const sectionSchema = { type: Type.OBJECT, properties: { id: { type: Type.STRING }, type: { type: Type.STRING, enum: ['text', 'image'] }, role: { type: Type.STRING }, text: { type: Type.STRING }, style: textStyleDefinitionSchema, imageUrl: { type: Type.STRING }, prompt: { type: Type.STRING }, objectFit: { type: Type.STRING, enum: ['cover', 'contain'] } }, required: ['id', 'type', 'role'] };
+     const sectionSchema = { type: Type.OBJECT, properties: { id: { type: Type.STRING }, type: { type: Type.STRING, enum: ['text', 'image'] }, role: { type: Type.STRING }, content: { type: Type.ARRAY, description: "For text sections, an array with one TextSpan object: `[{ \"text\": \"...\", \"style\": {} }]`", items: textSpanSchema }, style: textStyleDefinitionSchema, imageUrl: { type: Type.STRING }, prompt: { type: Type.STRING }, objectFit: { type: Type.STRING, enum: ['cover', 'contain'] } }, required: ['id', 'type', 'role'] };
      const layoutBoxSchema = { type: Type.OBJECT, properties: { id: { type: Type.STRING }, role: { type: Type.STRING }, constraints: { type: Type.OBJECT, properties: { top: { type: Type.STRING }, bottom: { type: Type.STRING }, left: { type: Type.STRING }, right: { type: Type.STRING }, width: { type: Type.STRING }, height: { type: Type.STRING }, centerX: { type: Type.STRING }, centerY: { type: Type.STRING } } }, backgroundColor: { type: Type.STRING, description: "MUST be 'transparent'." }, zIndex: { type: Type.NUMBER }, sections: { type: Type.ARRAY, items: sectionSchema } }, required: ['id', 'role', 'constraints', 'backgroundColor', 'zIndex', 'sections'] };
      const fullSchema = { type: Type.OBJECT, properties: { name: { type: Type.STRING }, description: { type: Type.STRING }, width: { type: Type.NUMBER }, height: { type: Type.NUMBER }, background: { type: Type.OBJECT, properties: { type: { type: Type.STRING, enum: ['color', 'image'] }, value: { type: Type.STRING } }, required: ['type', 'value'] }, layoutBoxes: { type: Type.ARRAY, items: layoutBoxSchema } }, required: ['name', 'description', 'width', 'height', 'background', 'layoutBoxes'] };
 
@@ -109,7 +111,7 @@ const buildTemplateFromAnalysis = async (
 1.  **Golden Rule:** Every element from the analysis **MUST** become its own \`LayoutBox\`. Each \`LayoutBox\` **MUST** contain exactly one content \`section\`.
 2.  **Translate BoundingBox to Constraints:** Convert each element's percentage-based \`boundingBox\` into a set of CSS-like string constraints. For example, \`{ x: 10, y: 15, width: 80, height: 20 }\` becomes \`constraints: { left: '10%', top: '15%', width: '80%', height: '20%' }\`.
 3.  **Create Content Sections:**
-    *   If an element's \`type\` is 'text', create a \`TextSection\`. Use its \`contentDescription\` as the placeholder Chinese \`text\`. You MUST also generate a plausible \`style\` object for it.
+    *   If an element's \`type\` is 'text', create a \`TextSection\`. Its \`content\` property **MUST** be an array containing a single object: \`[{ "text": "...", "style": {} }]\`. Use the element's \`contentDescription\` for the placeholder text. You **MUST** also generate a plausible base \`style\` object for the section.
     *   If an element's \`type\` is 'image', create an \`ImageSection\`. The \`imageUrl\` **MUST** be an empty string \`''\`. Use its \`contentDescription\` as the English \`prompt\`.
 4.  **Implement Background:** Analyze the background description. If it describes a color, set \`background.type\` to \`'color'\` and \`value\` to a hex/rgba string. If it describes a scene, set \`type\` to \`'image'\` and \`value\` to an English image generation prompt based on the description.
 5.  **Metadata:** Provide a suitable \`name\` and \`description\` for the template in Chinese.
@@ -157,6 +159,12 @@ export const deconstructImageToTemplate = async (
             if (!box.backgroundColor) box.backgroundColor = 'transparent';
             if (box.zIndex === undefined) box.zIndex = (box.role?.toLowerCase().includes('logo') ? 10 : 1);
             if (!box.sections) box.sections = [];
+            box.sections.forEach((section: any) => {
+                if (section.type === 'text' && !section.content) {
+                    section.content = [{ text: section.text || 'Placeholder', style: {} }];
+                    delete section.text;
+                }
+            });
             if (!box.borderRadius) box.borderRadius = 0;
             if (!box.paddingTop) box.paddingTop = 0;
             if (!box.paddingRight) box.paddingRight = 0;

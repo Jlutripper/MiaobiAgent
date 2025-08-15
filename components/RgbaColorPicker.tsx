@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
+import { produce } from 'immer';
 import { XMarkIcon, PaintBrushIcon } from './icons';
 import { hexToRgb, rgbToHex, rgbToHsv, hsvToRgb, parseColorString, parseGradientString, toGradientString, isGradient } from './utils/colorUtils';
-import { GradientStop } from '../types';
+import { Gradient, GradientStop, GradientType, LinearGradient } from '../types';
 
 
 interface EyeDropper {
@@ -13,6 +14,8 @@ declare global {
     EyeDropper: EyeDropper;
   }
 }
+
+const defaultLinearGradient: LinearGradient = { type: 'linear', angle: 90, stops: [{ id: 'start', color: 'rgba(0,0,0,1)', position: 0 }, { id: 'end', color: 'rgba(255,255,255,1)', position: 1 }]};
 
 // --- Sub-components for Picker ---
 const SaturationValuePicker = ({ hue, saturation, value, onChange }: { hue: number; saturation: number; value: number; onChange: (s: number, v: number) => void; }) => {
@@ -28,7 +31,8 @@ const SaturationValuePicker = ({ hue, saturation, value, onChange }: { hue: numb
         handleMove(e.nativeEvent);
         const onMouseMove = (moveE: MouseEvent) => handleMove(moveE);
         const onMouseUp = () => { document.removeEventListener('mousemove', onMouseMove); document.removeEventListener('mouseup', onMouseUp); };
-        document.addEventListener('mousemove', onMouseMove); document.addEventListener('mouseup', onMouseUp);
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
     }, [handleMove]);
     return (
         <div ref={pickerRef} className="w-full h-40 relative cursor-pointer rounded-t-md overflow-hidden" style={{ backgroundColor: `hsl(${hue}, 100%, 50%)` }} onMouseDown={handleMouseDown}>
@@ -52,7 +56,7 @@ const AlphaSlider = ({ colorRgb, alpha, onChange }: { colorRgb: {r: number, g: n
         </div>
     );
 };
-const GradientSlider = ({ angle, stops, activeStopId, onAngleChange, onStopsChange, onActiveStopIdChange }: { angle: number; stops: GradientStop[]; activeStopId: string | null; onAngleChange: (a: number) => void; onStopsChange: (updater: (prevStops: GradientStop[]) => GradientStop[]) => void; onActiveStopIdChange: (id: string | null) => void; }) => {
+const GradientSlider = ({ gradient, activeStopId, onGradientChange, onActiveStopIdChange }: { gradient: Gradient, activeStopId: string | null; onGradientChange: (g: Gradient) => void; onActiveStopIdChange: (id: string | null) => void; }) => {
     const sliderRef = useRef<HTMLDivElement>(null);
 
     const handleAddStop = useCallback((e: React.MouseEvent) => {
@@ -60,13 +64,12 @@ const GradientSlider = ({ angle, stops, activeStopId, onAngleChange, onStopsChan
         const rect = sliderRef.current.getBoundingClientRect();
         const position = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
         const newStop: GradientStop = { id: `stop-${Date.now()}`, color: 'rgba(255,255,255,1)', position };
+        
+        const newStops = [...gradient.stops, newStop].sort((a,b) => a.position - b.position);
+        onGradientChange({ ...gradient, stops: newStops });
+        onActiveStopIdChange(newStop.id);
 
-        onStopsChange(prevStops => {
-             const newStops = [...prevStops, newStop].sort((a,b) => a.position - b.position);
-             onActiveStopIdChange(newStop.id);
-             return newStops;
-        });
-    }, [onStopsChange, onActiveStopIdChange]);
+    }, [gradient, onGradientChange, onActiveStopIdChange]);
 
     const handleStopDrag = useCallback((e: React.MouseEvent, stopId: string) => {
         e.preventDefault();
@@ -78,49 +81,45 @@ const GradientSlider = ({ angle, stops, activeStopId, onAngleChange, onStopsChan
             const rect = sliderRef.current.getBoundingClientRect();
             const position = Math.max(0, Math.min(1, (moveE.clientX - rect.left) / rect.width));
             
-            onStopsChange(prevStops => prevStops.map((s) => s.id === stopId ? { ...s, position } : s));
+            onGradientChange({ ...gradient, stops: gradient.stops.map((s) => s.id === stopId ? { ...s, position } : s)});
         };
 
         const onMouseUp = () => {
-            onStopsChange(prevStops => [...prevStops].sort((a, b) => a.position - b.position));
+            onGradientChange({ ...gradient, stops: [...gradient.stops].sort((a,b) => a.position - b.position)});
             document.removeEventListener('mousemove', onMouseMove);
             document.removeEventListener('mouseup', onMouseUp);
         };
         
         document.addEventListener('mousemove', onMouseMove);
         document.addEventListener('mouseup', onMouseUp);
-    }, [onActiveStopIdChange, onStopsChange]);
+    }, [gradient, onActiveStopIdChange, onGradientChange]);
 
     const handleRemoveStop = useCallback((stopIdToRemove: string) => {
-        if(stops.length <= 2) return;
-        onStopsChange(prevStops => {
-             const stopToRemove = prevStops.find(s => s.id === stopIdToRemove);
-             if (!stopToRemove) return prevStops;
+        if(gradient.stops.length <= 2) return;
+        
+        const stopToRemove = gradient.stops.find(s => s.id === stopIdToRemove);
+        if (!stopToRemove) return;
 
-             const newStops = prevStops.filter((s) => s.id !== stopIdToRemove);
-             
-             if (activeStopId === stopIdToRemove) {
-                const currentIndex = prevStops.indexOf(stopToRemove);
-                const nextActiveIndex = currentIndex > 0 ? currentIndex - 1 : 0;
-                onActiveStopIdChange(newStops[nextActiveIndex]?.id || null);
-             }
-             
-             return newStops;
-        });
-    }, [stops.length, activeStopId, onStopsChange, onActiveStopIdChange]);
+        const newStops = gradient.stops.filter((s) => s.id !== stopIdToRemove);
+        
+        if (activeStopId === stopIdToRemove) {
+           const currentIndex = gradient.stops.indexOf(stopToRemove);
+           const nextActiveIndex = currentIndex > 0 ? currentIndex - 1 : 0;
+           onActiveStopIdChange(newStops[nextActiveIndex]?.id || null);
+        }
+        
+        onGradientChange({ ...gradient, stops: newStops });
+
+    }, [gradient, activeStopId, onGradientChange, onActiveStopIdChange]);
     
     return (
         <div className="space-y-3">
-             <div ref={sliderRef} onClick={handleAddStop} className="w-full h-6 rounded-md relative cursor-pointer" style={{ background: toGradientString(90, stops) }}>
-                {stops.map((stop) => (
+             <div ref={sliderRef} onClick={handleAddStop} className="w-full h-6 rounded-md relative cursor-pointer" style={{ background: toGradientString({ ...gradient, type: 'linear', angle: 90 }) }}>
+                {gradient.stops.map((stop) => (
                      <div key={stop.id} data-stop="true" onMouseDown={e => handleStopDrag(e, stop.id)} onDoubleClick={() => handleRemoveStop(stop.id)} className={`absolute -top-1 w-5 h-8 rounded-sm border-2 cursor-pointer transform -translate-x-1/2 ${stop.id === activeStopId ? 'border-blue-400 z-10 scale-110' : 'border-white'}`} style={{ left: `${stop.position*100}%`, background: stop.color }}/>
                 ))}
             </div>
-             <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-400">角度</label>
-                <input type="number" value={angle} onChange={e => onAngleChange(parseInt(e.target.value) % 360 || 0)} className="w-16 p-1 bg-gray-700 border border-gray-600 rounded-md text-center text-sm"/>
-                {stops.length > 2 && activeStopId && <button onClick={() => handleRemoveStop(activeStopId)} className="text-xs text-red-400 ml-auto hover:text-red-300">删除色标</button>}
-            </div>
+            {gradient.stops.length > 2 && activeStopId && <button onClick={() => handleRemoveStop(activeStopId)} className="text-xs text-red-400 ml-auto hover:text-red-300">删除色标</button>}
         </div>
     );
 };
@@ -135,7 +134,7 @@ export const RgbaColorPicker = ({ value, onChange, onClose, anchorRef, allowGrad
     const [alpha, setAlpha] = useState(1);
     
     // Gradient state
-    const [gradient, setGradient] = useState<{ angle: number; stops: GradientStop[] }>({ angle: 90, stops: [{ id: 'start', color: 'rgba(0,0,0,1)', position: 0 }, { id: 'end', color: 'rgba(255,255,255,1)', position: 1 }] });
+    const [gradient, setGradient] = useState<Gradient>(defaultLinearGradient);
     const [activeStopId, setActiveStopId] = useState<string | null>(null);
     const [positionStyle, setPositionStyle] = useState<React.CSSProperties>({ opacity: 0 });
     
@@ -168,7 +167,7 @@ export const RgbaColorPicker = ({ value, onChange, onClose, anchorRef, allowGrad
             const solidColor = parseColorString(value);
             setHsv(rgbToHsv(solidColor.r, solidColor.g, solidColor.b));
             setAlpha(solidColor.a);
-            setActiveTab('solid');
+            if (activeTab === 'gradient') setActiveTab('solid');
         }
     }, [value, allowGradient]);
     
@@ -193,13 +192,14 @@ export const RgbaColorPicker = ({ value, onChange, onClose, anchorRef, allowGrad
         if (activeTab === 'solid') {
             onChange(newColor);
         } else if (activeStopId) {
-            setGradient(g => {
-                const newStops = g.stops.map(s => s.id === activeStopId ? { ...s, color: newColor } : s);
-                onChange(toGradientString(g.angle, newStops));
-                return { ...g, stops: newStops };
+            const newGradient = produce(gradient, draft => {
+                const stop = draft.stops.find(s => s.id === activeStopId);
+                if (stop) stop.color = newColor;
             });
+            setGradient(newGradient);
+            onChange(toGradientString(newGradient));
         }
-    }, [alpha, onChange, activeTab, activeStopId]);
+    }, [alpha, onChange, activeTab, activeStopId, gradient]);
     
     const handleAlphaChange = useCallback((newA: number) => {
         setAlpha(newA);
@@ -208,13 +208,14 @@ export const RgbaColorPicker = ({ value, onChange, onClose, anchorRef, allowGrad
         if (activeTab === 'solid') {
             onChange(newColor);
         } else if (activeStopId) {
-             setGradient(g => {
-                const newStops = g.stops.map(s => s.id === activeStopId ? { ...s, color: newColor } : s);
-                onChange(toGradientString(g.angle, newStops));
-                return { ...g, stops: newStops };
+            const newGradient = produce(gradient, draft => {
+                const stop = draft.stops.find(s => s.id === activeStopId);
+                if (stop) stop.color = newColor;
             });
+            setGradient(newGradient);
+            onChange(toGradientString(newGradient));
         }
-    }, [hsv, onChange, activeTab, activeStopId]);
+    }, [hsv, onChange, activeTab, activeStopId, gradient]);
 
     const handleHexChange = (hex: string) => {
         const rgb = hexToRgb(hex);
@@ -226,23 +227,28 @@ export const RgbaColorPicker = ({ value, onChange, onClose, anchorRef, allowGrad
         if (!window.EyeDropper) { alert("您的浏览器不支持取色器功能。"); return; }
         try { const eyeDropper = new window.EyeDropper(); const result = await eyeDropper.open(); handleHexChange(result.sRGBHex); } catch (e) { console.info('Eyedropper cancelled'); }
     }
-
-    const handleGradientStopsChange = useCallback((updater: (prevStops: GradientStop[]) => GradientStop[]) => {
-        setGradient(g => {
-            const newStops = updater(g.stops);
-            const newGradient = { ...g, stops: newStops };
-            onChange(toGradientString(newGradient.angle, newGradient.stops));
-            return newGradient;
-        });
+    
+    const handleGradientChange = useCallback((newGradient: Gradient) => {
+        setGradient(newGradient);
+        onChange(toGradientString(newGradient));
     }, [onChange]);
     
-    const handleGradientAngleChange = useCallback((newAngle: number) => {
-        setGradient(g => {
-            const newGradient = { ...g, angle: newAngle };
-            onChange(toGradientString(newGradient.angle, newGradient.stops));
-            return newGradient;
-        });
-    }, [onChange]);
+    const handleGradientTypeChange = (type: GradientType) => {
+        let newGradient: Gradient;
+        switch (type) {
+            case 'radial':
+                newGradient = { type: 'radial', shape: 'ellipse', position: {x: 50, y: 50}, stops: gradient.stops };
+                break;
+            case 'conic':
+                newGradient = { type: 'conic', angle: 0, position: {x: 50, y: 50}, stops: gradient.stops };
+                break;
+            case 'linear':
+            default:
+                 newGradient = { type: 'linear', angle: 90, stops: gradient.stops };
+                 break;
+        }
+        handleGradientChange(newGradient);
+    }
     
     useLayoutEffect(() => {
         if (anchorRef.current && pickerRef.current) {
@@ -292,7 +298,7 @@ export const RgbaColorPicker = ({ value, onChange, onClose, anchorRef, allowGrad
                 <div className="bg-gray-700 p-0.5 rounded-md flex w-full">
                     <button onClick={() => { setActiveTab('solid'); onChange(`rgba(${Math.round(currentR)},${Math.round(currentG)},${Math.round(currentB)},${alpha})`) }} className={`flex-1 text-sm py-1 rounded ${activeTab === 'solid' ? 'bg-blue-600' : 'hover:bg-gray-600'}`}>纯色</button>
                     {allowGradient && (
-                        <button onClick={() => { setActiveTab('gradient'); onChange(toGradientString(gradient.angle, gradient.stops)) }} className={`flex-1 text-sm py-1 rounded ${activeTab === 'gradient' ? 'bg-blue-600' : 'hover:bg-gray-600'}`}>渐变</button>
+                        <button onClick={() => { setActiveTab('gradient'); onChange(toGradientString(gradient)) }} className={`flex-1 text-sm py-1 rounded ${activeTab === 'gradient' ? 'bg-blue-600' : 'hover:bg-gray-600'}`}>渐变</button>
                     )}
                 </div>
                 <button onClick={onClose} className="p-1 rounded-full hover:bg-gray-700 ml-2"><XMarkIcon className="w-5 h-5"/></button>
@@ -304,7 +310,28 @@ export const RgbaColorPicker = ({ value, onChange, onClose, anchorRef, allowGrad
                      <AlphaSlider colorRgb={{r:currentR, g:currentG, b:currentB}} alpha={alpha} onChange={handleAlphaChange} />
                  </div>
              </div>
-            {activeTab === 'gradient' && allowGradient && <GradientSlider angle={gradient.angle} stops={gradient.stops} activeStopId={activeStopId} onAngleChange={handleGradientAngleChange} onStopsChange={handleGradientStopsChange} onActiveStopIdChange={setActiveStopId} />}
+            {activeTab === 'gradient' && allowGradient && (
+                <div className="space-y-3">
+                    <div className="bg-gray-700/50 p-0.5 rounded-md flex w-full text-xs">
+                        <button onClick={() => handleGradientTypeChange('linear')} className={`flex-1 py-1 rounded ${gradient.type === 'linear' ? 'bg-blue-600' : 'hover:bg-gray-600'}`}>线性</button>
+                        <button onClick={() => handleGradientTypeChange('radial')} className={`flex-1 py-1 rounded ${gradient.type === 'radial' ? 'bg-blue-600' : 'hover:bg-gray-600'}`}>径向</button>
+                        <button onClick={() => handleGradientTypeChange('conic')} className={`flex-1 py-1 rounded ${gradient.type === 'conic' ? 'bg-blue-600' : 'hover:bg-gray-600'}`}>圆锥</button>
+                    </div>
+                    {gradient.type === 'linear' && (
+                        <div className="flex items-center gap-2">
+                            <label className="text-xs text-gray-400">角度</label>
+                            <input type="number" value={gradient.angle} onChange={e => handleGradientChange({ ...gradient, angle: parseInt(e.target.value) % 360 || 0 })} className="w-16 p-1 bg-gray-700 border border-gray-600 rounded-md text-center text-sm"/>
+                        </div>
+                    )}
+                     {gradient.type === 'radial' && (
+                        <div className="flex items-center gap-2">
+                            <label className="text-xs text-gray-400">形状</label>
+                            <select value={gradient.shape} onChange={e => handleGradientChange({...gradient, shape: e.target.value as any})} className="flex-1 p-1 bg-gray-700 border border-gray-600 rounded-md text-sm"><option value="ellipse">椭圆</option><option value="circle">圆形</option></select>
+                        </div>
+                    )}
+                    <GradientSlider gradient={gradient} activeStopId={activeStopId} onGradientChange={handleGradientChange} onActiveStopIdChange={setActiveStopId} />
+                </div>
+            )}
              <div className="flex gap-2 items-center">
                  <button onClick={handleUseEyedropper} className="p-2 bg-gray-700 border border-gray-600 rounded-md hover:bg-gray-600"><PaintBrushIcon className="w-5 h-5"/></button>
                  <div className="flex-1">

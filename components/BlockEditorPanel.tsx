@@ -1,118 +1,11 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
-import { ArticleSection, AspectRatio, TextStyleDefinition, TextSection, ImageSection, LayoutBox } from '../types';
+import { ArticleSection, AspectRatio, TextStyleDefinition, TextSection, ImageSection, LayoutBox, TextSpan, TextSpanStyle } from '../types';
 import { FONT_FAMILIES, TEMPLATE_TEXT_ROLES } from '../constants';
 import { SpinnerIcon, ArrowPathIcon, ArrowUpTrayIcon, TrashIcon, AlignTextCenter, AlignTextLeft, AlignTextRight, AlignTextJustifyIcon, PaintBrushIcon, HighlighterIcon, QuestionMarkCircleIcon, LockClosedIcon, LockOpenIcon } from './icons';
 import { RgbaColorPicker as ColorPicker } from './RgbaColorPicker';
 import { Tooltip } from './Tooltip';
 import { FlexLayoutBoxPanel } from './PosterTemplateEditor';
 
-export const RichTextEditor = ({ html, onChange, onBlur }: { html: string, onChange: (html: string) => void, onBlur: () => void }) => {
-    const editorRef = useRef<HTMLDivElement>(null);
-    const savedSelection = useRef<Range | null>(null);
-    const [pickerState, setPickerState] = useState<{ command: 'foreColor' | 'backColor'; initialColor: string; anchor: HTMLButtonElement; } | null>(null);
-
-    useEffect(() => {
-        const editor = editorRef.current;
-        if (editor && editor.innerHTML !== html) {
-            editor.innerHTML = html;
-        }
-    }, [html]);
-
-    const saveSelection = () => {
-        const sel = window.getSelection();
-        if (sel && sel.rangeCount > 0 && editorRef.current?.contains(sel.anchorNode)) {
-             savedSelection.current = sel.getRangeAt(0).cloneRange();
-        } else {
-             savedSelection.current = null;
-        }
-    };
-
-    const restoreSelection = () => {
-        if (savedSelection.current && window.getSelection) {
-            const sel = window.getSelection();
-            sel?.removeAllRanges();
-            sel?.addRange(savedSelection.current);
-            editorRef.current?.focus();
-        }
-    };
-
-    const execCommand = (command: string, value?: string) => {
-        restoreSelection();
-        document.execCommand(command, false, value);
-        if (editorRef.current) {
-            onChange(editorRef.current.innerHTML);
-            saveSelection();
-        }
-    };
-    
-    const handleSimpleCommand = (command: string) => {
-        execCommand(command);
-    };
-
-    const openColorPicker = (e: React.MouseEvent<HTMLButtonElement>, command: 'foreColor' | 'backColor') => {
-        saveSelection();
-        
-        let initialColor = 'rgba(0,0,0,1)';
-        const sel = window.getSelection();
-
-        if (sel && sel.rangeCount > 0) {
-            let container = sel.getRangeAt(0).commonAncestorContainer;
-            if (container.nodeType === Node.TEXT_NODE) {
-                container = container.parentElement!;
-            }
-            if (container instanceof HTMLElement) {
-                if (command === 'foreColor') {
-                    initialColor = window.getComputedStyle(container).color;
-                }
-            }
-        }
-        
-        if (command === 'backColor') {
-            initialColor = 'rgba(255, 255, 0, 1)'; // Default highlight
-        }
-
-        setPickerState(prev => prev?.anchor === e.currentTarget ? null : { command, initialColor, anchor: e.currentTarget });
-    };
-
-    const handleColorChange = (color: string) => {
-        if (pickerState) {
-            execCommand(pickerState.command, color);
-        }
-    };
-    
-    return (
-        <div className="relative">
-            <div className="flex items-center gap-1 mb-2 bg-gray-600 p-1 rounded-md">
-                <button onClick={() => handleSimpleCommand('bold')} className="px-3 py-1 text-white font-bold rounded hover:bg-gray-500" title="加粗">B</button>
-                <button onClick={() => handleSimpleCommand('underline')} className="px-3 py-1 text-white underline rounded hover:bg-gray-500" title="下划线">U</button>
-                <button ref={useRef<HTMLButtonElement>(null)} onClick={(e) => openColorPicker(e, 'foreColor')} className="p-2 rounded hover:bg-gray-500 rich-text-color-btn" title="文字颜色"><PaintBrushIcon className="w-5 h-5"/></button>
-                <button ref={useRef<HTMLButtonElement>(null)} onClick={(e) => openColorPicker(e, 'backColor')} className="p-2 rounded hover:bg-gray-500 rich-text-color-btn" title="高亮颜色"><HighlighterIcon className="w-5 h-5"/></button>
-                <button onClick={() => handleSimpleCommand('removeFormat')} className="p-2 text-gray-300 rounded hover:bg-gray-500" title="清除格式">
-                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v1.158l-1.738 4.345A2 2 0 003.362 14h13.276a2 2 0 001.098-2.5L16 6.158V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM3 8.5L4.738 4.155A1 1 0 015.638 4h8.724a1 1 0 01.9.998L17 8.5v6.5a1 1 0 01-1 1H4a1 1 0 01-1-1V8.5z" clipRule="evenodd" /></svg>
-                </button>
-            </div>
-            {pickerState && (
-                <ColorPicker
-                    value={pickerState.initialColor}
-                    onChange={handleColorChange}
-                    onClose={() => setPickerState(null)}
-                    anchorRef={{ current: pickerState.anchor }}
-                />
-            )}
-            <div
-                ref={editorRef}
-                contentEditable
-                onInput={(e) => onChange((e.currentTarget as HTMLDivElement).innerHTML)}
-                onBlur={onBlur}
-                onFocus={saveSelection}
-                onMouseUp={saveSelection}
-                onKeyUp={saveSelection}
-                className="w-full h-32 p-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                style={{ whiteSpace: 'pre-wrap', overflowWrap: 'break-word' }}
-            />
-        </div>
-    );
-}
 
 const ColorSwatch = ({ label, value, onChange }: { label?: string, value: string, onChange: (v: string) => void }) => {
     const [isOpen, setIsOpen] = useState(false);
@@ -355,7 +248,7 @@ export const BlockEditorPanel = ({
                 <div className="space-y-4">
                     <details className="bg-gray-900/50 p-3 rounded-lg border border-gray-700" open><summary className="font-semibold cursor-pointer">内容和字体</summary><div className="mt-4 space-y-4">
                         <div className="flex justify-between items-center mb-1">
-                            <label className="block text-sm font-medium text-gray-400">文本内容 {isTemplateMode && "(占位符)"}</label>
+                             <label className="block text-sm font-medium text-gray-400">文本内容</label>
                             {isTemplateMode && onCopyStyle && section.type === 'text' && (
                                 <Tooltip text={isFormatPainterActive ? "点击文本区块以粘贴样式" : "复制此文本样式"}>
                                     <button
@@ -367,7 +260,7 @@ export const BlockEditorPanel = ({
                                 </Tooltip>
                             )}
                         </div>
-                        <RichTextEditor html={section.text} onChange={(html) => onUpdate({ text: html })} onBlur={() => {}}/>
+                         <p className="text-xs text-gray-400 p-2 bg-gray-800 rounded-md">请直接在画布上修改文本内容。</p>
                         <div>
                             <label className="block text-sm font-medium text-gray-400 mb-1">字体</label>
                             <select value={section.style.fontFamily} onChange={e => handleStyleUpdate({ fontFamily: e.target.value })} className="w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white">

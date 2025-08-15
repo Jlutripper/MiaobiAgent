@@ -14,6 +14,7 @@ import { PREDEFINED_TOOLS } from './constants';
 import { Header } from './components/Header';
 import { SettingsPage } from './components/SettingsPage';
 import { useIndexedDBStore } from './hooks/useIndexedDBStore';
+import { createPosterSnapshot } from './components/chat/results/PosterResult';
 
 interface InteractionState {
     tool: Tool;
@@ -86,13 +87,31 @@ function App() {
             if (tool === 'poster') {
                 const posterData = await generatePosterLayout(
                     prompt,
-                    payload.content, // Pass content for poster now
+                    payload.content,
                     payload.aspectRatio!,
                     payload.templateId,
                     posterTemplates
                 );
+    
+                let previewImageUrl = '';
+                try {
+                    previewImageUrl = await createPosterSnapshot(posterData, { scale: 1 });
+                } catch (error) {
+                    console.error("Failed to create poster snapshot:", error);
+                }
                 
-                updateMessage(interactiveMessageId, { content: "您的海报已生成！您可以直接下载，或点击编辑进行调整。", result: { type: 'poster', ...posterData, prompt: displayPrompt }, isThinking: false });
+                const finalResult: ResultData = { 
+                    type: 'poster', 
+                    ...posterData, 
+                    prompt: displayPrompt, 
+                    previewImageUrl 
+                };
+                
+                updateMessage(interactiveMessageId, { 
+                    content: "您的海报已生成！您可以直接下载，或点击编辑进行调整。", 
+                    result: finalResult, 
+                    isThinking: false 
+                });
             } else if (tool === 'generator') {
                 const imageUrl = await generateStandaloneImage(prompt, payload.aspectRatio!);
                 updateMessage(interactiveMessageId, { content: "图片已生成！", result: { type: 'image', imageUrl }, isThinking: false });

@@ -1,4 +1,4 @@
-import { GradientStop } from "../../types";
+import { Gradient, GradientStop, GradientType, LinearGradient, RadialGradient, ConicGradient, RadialGradientShape } from "../../types";
 
 // --- Color Conversion Utilities ---
 export const hexToRgb = (hex: string): { r: number, g: number, b: number } | null => {
@@ -82,53 +82,83 @@ export const parseColorString = (colorStr: string): { r: number, g: number, b: n
 
 // --- Gradient Utilities ---
 
-export const isGradient = (color: string | undefined): boolean => typeof color === 'string' && color.startsWith('linear-gradient');
+export const isGradient = (color: string | undefined): boolean => typeof color === 'string' && /^(linear|radial|conic)-gradient/.test(color);
 
-export const parseGradientString = (gradStr: string): { angle: number; stops: GradientStop[] } | null => {
+export const parseGradientString = (gradStr: string): Gradient | null => {
     if (!isGradient(gradStr)) return null;
 
-    const angleMatch = gradStr.match(/linear-gradient\((\d+\.?\d*)deg/);
-    const angle = angleMatch ? parseFloat(angleMatch[1]) : 0;
+    const typeMatch = gradStr.match(/^(linear|radial|conic)/);
+    const type = (typeMatch?.[0] as GradientType) || 'linear';
 
     const stops: GradientStop[] = [];
+    const stopsString = gradStr.substring(gradStr.indexOf('(') + 1, gradStr.lastIndexOf(')'));
     
-    const stopsString = gradStr.substring(gradStr.indexOf(',') + 1, gradStr.lastIndexOf(')'));
-    const individualStops = stopsString.match(/(rgba?\(.+?\)|\S+)\s+\d+\.?\d*%/g) || [];
-
-    for (const stop of individualStops) {
-        const parts = stop.match(/(rgba?\(.+?\)|\S+)\s+(\d+\.?\d*)%/);
-        if (parts) {
-            stops.push({
-                id: `stop-${Date.now()}-${Math.random()}`,
-                color: parts[1],
-                position: parseFloat(parts[2]) / 100
-            });
+    const colorStopRegex = /(rgba?\(.+?\)|#([a-fA-F0-9]{3,8})|\b[a-zA-Z]+\b)(\s+\d+\.?\d*%)?/g;
+    let stopMatches;
+    let lastPosition = 0;
+    while((stopMatches = colorStopRegex.exec(stopsString)) !== null) {
+        if (stopMatches.index > stopsString.indexOf(',')) { // ensure we are parsing stops, not params
+            const color = stopMatches[1];
+            let position: number | null = null;
+            if (stopMatches[3]) {
+                position = parseFloat(stopMatches[3].trim()) / 100;
+            }
+            stops.push({ id: `stop-${Date.now()}-${Math.random()}`, color, position: position as any });
         }
     }
     
-    if (stops.length === 0) { // Fallback for simple two-color gradients without explicit positions
-        const colorMatches = gradStr.match(/(rgba?\(.+?\)|#([a-fA-F0-9]{3,8})|\b[a-zA-Z]+\b)/g);
-        if (colorMatches && colorMatches.length >= 2) {
-             stops.push({ id: `stop-${Date.now()}-${Math.random()}`, color: colorMatches[1], position: 0 });
-             stops.push({ id: `stop-${Date.now()}-${Math.random()}`, color: colorMatches[colorMatches.length - 1], position: 1 });
-        } else {
+    // Auto-assign positions if missing
+    const unpositionedCount = stops.filter(s => s.position === null).length;
+    if (unpositionedCount > 0) {
+      let lastDefinedPos = stops.find(s => s.position !== null)?.position || 0;
+      let nextDefinedPosIdx = stops.findIndex((s, i) => i > 0 && s.position !== null);
+      for (let i = 0; i < stops.length; i++) {
+        if (stops[i].position === null) {
+          const start = lastDefinedPos;
+          const end = nextDefinedPosIdx !== -1 ? stops[nextDefinedPosIdx].position : 1;
+          const num = stops.slice(i, nextDefinedPosIdx !== -1 ? nextDefinedPosIdx : stops.length).length;
+          const step = (end-start)/(num+1);
+          for(let j=0; j<num; j++){
+              stops[i+j].position = start + (j+1)*step;
+          }
+          i += num - 1;
+        }
+        lastDefinedPos = stops[i].position;
+        nextDefinedPosIdx = stops.findIndex((s, k) => k > i && s.position !== null);
+      }
+    }
+
+    const paramsStr = stopsString.substring(0, stopsString.indexOf(','));
+
+    switch (type) {
+        case 'linear':
+            const angleMatch = paramsStr.match(/(\d+\.?\d*)deg/);
+            return { type: 'linear', angle: angleMatch ? parseFloat(angleMatch[1]) : 180, stops };
+        case 'radial':
+            const shapeMatch = paramsStr.match(/(circle|ellipse)/);
+            const posMatch = paramsStr.match(/at\s+(\d+\.?\d*)%\s+(\d+\.?\d*)%/);
+            return { type: 'radial', shape: (shapeMatch?.[0] as RadialGradientShape) || 'ellipse', position: posMatch ? { x: parseFloat(posMatch[1]), y: parseFloat(posMatch[2]) } : { x: 50, y: 50 }, stops };
+        case 'conic':
+             const conicAngleMatch = paramsStr.match(/from\s+(\d+\.?\d*)deg/);
+             const conicPosMatch = paramsStr.match(/at\s+(\d+\.?\d*)%\s+(\d+\.?\d*)%/);
+             return { type: 'conic', angle: conicAngleMatch ? parseFloat(conicAngleMatch[1]) : 0, position: conicPosMatch ? { x: parseFloat(conicPosMatch[1]), y: parseFloat(conicPosMatch[2]) } : { x: 50, y: 50 }, stops };
+        default:
             return null;
-        }
     }
-    
-    // Ensure first and last stops exist if they were implicit
-    if (stops.length > 0 && stops[0].position !== 0) {
-        stops.unshift({ id: `stop-${Date.now()}-start`, color: stops[0].color, position: 0 });
-    }
-     if (stops.length > 0 && stops[stops.length - 1].position !== 1) {
-        stops.push({ id: `stop-${Date.now()}-end`, color: stops[stops.length - 1].color, position: 1 });
-    }
-
-    return { angle, stops: stops.sort((a,b) => a.position - b.position) };
 }
 
-export const toGradientString = (angle: number, stops: GradientStop[]): string => {
-    const sortedStops = [...stops].sort((a, b) => a.position - b.position);
+export const toGradientString = (gradient: Gradient): string => {
+    const sortedStops = [...gradient.stops].sort((a, b) => a.position - b.position);
     const stopsStr = sortedStops.map(s => `${s.color} ${s.position * 100}%`).join(', ');
-    return `linear-gradient(${angle}deg, ${stopsStr})`;
+
+    switch (gradient.type) {
+        case 'linear':
+            return `linear-gradient(${gradient.angle}deg, ${stopsStr})`;
+        case 'radial':
+            return `radial-gradient(${gradient.shape} at ${gradient.position.x}% ${gradient.position.y}%, ${stopsStr})`;
+        case 'conic':
+            return `conic-gradient(from ${gradient.angle}deg at ${gradient.position.x}% ${gradient.position.y}%, ${stopsStr})`;
+        default:
+            return '';
+    }
 };

@@ -229,7 +229,7 @@ export const LayersPanel = ({ template, selectedPath, onSelect, onUpdate }: {
             } else if (type === 'decoration') {
                 newElement = { id: newId, type, role: '新装饰', imageUrl: NEW_DECORATION_PLACEHOLDER, position: { xPercent: 10, yPx: 10 }, sizePercent: { width: 30 }, angle: 0, zIndex: maxZ + 1, scope: 'page' };
             } else if (type === 'text') {
-                newElement = { id: newId, type, role: '新文本', text: '新文本区块', style: { fontFamily: 'sans-serif', fontSize: 48, fontWeight: 700, color: '#FFFFFF', textAlign: 'center', lineHeight: 1.2 } };
+                newElement = { id: newId, type, role: '新文本', content: [{ text: '新文本区块', style: {} }], style: { fontFamily: 'sans-serif', fontSize: 48, fontWeight: 700, color: '#FFFFFF', textAlign: 'center', lineHeight: 1.2, letterSpacing: 0 } };
             } else { // image
                 newElement = { id: newId, type, role: '新图片', imageUrl: '', prompt: 'A new image', objectFit: 'cover' };
             }

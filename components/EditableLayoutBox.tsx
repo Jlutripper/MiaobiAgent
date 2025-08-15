@@ -1,8 +1,6 @@
-
-
 import React, { useRef, useCallback } from 'react';
 import { produce } from 'https://esm.sh/immer@10.1.1';
-import { LayoutBox, DecorationElement, Guide, ArticleSection, TextSection, ImageSection, PosterTemplate } from '../types';
+import { LayoutBox, DecorationElement, Guide, ArticleSection, TextSection, ImageSection, PosterTemplate, TextSpan } from '../types';
 import { EditableTextSection } from './EditableTextSection';
 import { EditableImageSection } from './EditableImageSection';
 import { getPixelBounds, calculateStylesFromConstraints, findBoxById } from './utils/layoutUtils';
@@ -25,6 +23,12 @@ interface EditableLayoutBoxProps {
     onUpdate: (path: string[], updates: Partial<LayoutBox | ArticleSection>) => void;
     onDoubleClick?: (path: string[]) => void;
     editorMode?: 'template' | 'instance';
+    
+    // New props for text editing
+    editingTextPath: string[] | null;
+    onEnterTextEditMode: (path: string[]) => void;
+    onExitTextEditMode: () => void;
+    onSelectionChange: (selection: { start: number; end: number; } | null) => void;
 }
 
 const parseValue = (val: string | undefined): { value: number, unit: string } => {
@@ -382,12 +386,19 @@ export const EditableLayoutBox = (props: EditableLayoutBoxProps) => {
                     }
 
                     if (section.type === 'text') {
+                        const sectionPath = [...path, section.id];
+                        const isEditing = props.editingTextPath !== null && JSON.stringify(props.editingTextPath) === JSON.stringify(sectionPath);
                         return (
                              <div key={section.id} style={sectionWrapperStyle}>
                                 <EditableTextSection 
                                     section={section} 
                                     isSelected={isSelected(section.id)}
-                                    onSelect={(e) => {e.stopPropagation(); onSelect([...path, section.id])}}
+                                    isEditing={isEditing}
+                                    onSelect={(e) => {e.stopPropagation(); onSelect(sectionPath)}}
+                                    onEnterEditMode={() => props.onEnterTextEditMode(sectionPath)}
+                                    onExitEditMode={props.onExitTextEditMode}
+                                    onUpdateContent={(newContent: TextSpan[]) => onUpdate(sectionPath, { content: newContent })}
+                                    onSelectionChange={props.onSelectionChange}
                                 />
                             </div>
                         )

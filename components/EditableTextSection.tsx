@@ -1,279 +1,371 @@
-import React, { useRef, useLayoutEffect, useState } from 'react';
-import { TextSection } from '../types';
-import { isGradient } from './utils/colorUtils';
+import React, { useRef, useLayoutEffect, useState, useCallback, useMemo, useEffect } from 'react';
+import { produce } from 'immer';
+import { TextSection, TextSpan, TextSpanStyle } from '../types';
+import { isGradient, parseGradientString } from './utils/colorUtils';
 
-type StyledChar = {
-    char: string;
-    styles: React.CSSProperties;
-};
-
-type CharLayout = StyledChar & {
-    width: number;
-    x: number;
-    y: number;
-    rotate: number;
-};
-
-const parseRichTextToStyledChars = (html: string, baseStyle: React.CSSProperties): StyledChar[] => {
-    const container = document.createElement('div');
-    container.innerHTML = html;
-    const chars: StyledChar[] = [];
-
-    const traverse = (node: Node, inheritedStyles: React.CSSProperties) => {
-        if (node.nodeType === Node.TEXT_NODE) {
-            const text = node.textContent || '';
-            for (const char of text) {
-                chars.push({ char, styles: inheritedStyles });
-            }
-        } else if (node.nodeType === Node.ELEMENT_NODE) {
-            const element = node as HTMLElement;
-            let newStyles = { ...inheritedStyles };
-            
-            switch (element.tagName.toLowerCase()) {
-                case 'b': case 'strong': newStyles.fontWeight = 'bold'; break;
-                case 'i': case 'em': newStyles.fontStyle = 'italic'; break;
-                case 'u': newStyles.textDecoration = 'underline'; break;
-                case 'font':
-                    if (element.hasAttribute('color')) {
-                        newStyles.color = element.getAttribute('color') || inheritedStyles.color;
-                    }
-                    break;
-            }
-            
-            if (element.style.color) newStyles.color = element.style.color;
-            if (element.style.backgroundColor) newStyles.backgroundColor = element.style.backgroundColor;
-            if (element.style.fontWeight) newStyles.fontWeight = element.style.fontWeight;
-            if (element.style.fontStyle) newStyles.fontStyle = element.style.fontStyle;
-            if (element.style.textDecoration) newStyles.textDecoration = element.style.textDecoration;
-
-            element.childNodes.forEach(child => traverse(child, newStyles));
+const spansToHtml = (spans: TextSpan[]): string => {
+    if (!spans || spans.length === 0) return '';
+    return spans.map(span => {
+        // Use a simple text node if there are no styles to avoid adding extra <span> tags
+        if (Object.keys(span.style || {}).length === 0) {
+            return span.text;
         }
-    };
-
-    traverse(container, baseStyle);
-    return chars;
-};
-
-export const EditableTextSection = ({ section, isSelected, onSelect }: { section: TextSection, isSelected: boolean, onSelect: (e: React.MouseEvent) => void }) => {
-    const { style, text, rotation = 0 } = section;
-    const { curve = 0, letterSpacing = 0, writingMode, textAlign } = style;
-    const isColorGradient = isGradient(style.color);
-
-    const [layout, setLayout] = useState<{ chars: CharLayout[], containerWidth: number, containerHeight: number }>({ chars: [], containerWidth: 0, containerHeight: 0 });
-    const isMountedRef = useRef(false);
-
-    useLayoutEffect(() => {
-        isMountedRef.current = true;
-        let measurementDiv: HTMLDivElement | null = null;
-        let isCancelled = false;
-
-        const calculateLayout = async () => {
-            if (!isMountedRef.current || Math.abs(curve) < 1) return;
-            
-            await document.fonts.ready;
-            if (isCancelled) return;
-
-            const baseCharStyle: React.CSSProperties = {
-                fontFamily: style.fontFamily,
-                fontSize: `${style.fontSize}px`,
-                fontWeight: style.fontWeight,
-                letterSpacing: `${letterSpacing}px`,
-                whiteSpace: 'pre',
-                color: style.color,
-                WebkitTextStroke: style.textStroke,
-            };
-            const styledChars = parseRichTextToStyledChars(text, baseCharStyle);
-
-            if (styledChars.length === 0) {
-                 if (!isCancelled) setLayout({ chars: [], containerWidth: 0, containerHeight: style.fontSize });
-                 return;
-            }
-
-            measurementDiv = document.createElement('div');
-            measurementDiv.style.position = 'absolute';
-            measurementDiv.style.visibility = 'hidden';
-            measurementDiv.style.top = '-9999px';
-            measurementDiv.style.left = '-9999px';
-            document.body.appendChild(measurementDiv);
-            
-            const charWidths = styledChars.map(styledChar => {
-                const span = document.createElement('span');
-                Object.assign(span.style, styledChar.styles);
-                span.textContent = styledChar.char === ' ' ? '\u00A0' : styledChar.char;
-                measurementDiv.appendChild(span);
-                const width = span.getBoundingClientRect().width;
-                measurementDiv.removeChild(span);
-                return width;
-            });
-
-            document.body.removeChild(measurementDiv);
-            measurementDiv = null;
-            if (isCancelled) return;
-
-            const totalTextWidth = charWidths.reduce((sum, w) => sum + w, 0) + Math.max(0, styledChars.length - 1) * letterSpacing;
-            let containerWidth = 0;
-            let containerHeight = 0;
-            const charLayouts: CharLayout[] = [];
-
-            const radius = (50 * style.fontSize) / (curve / 100);
-            const circumference = 2 * Math.PI * Math.abs(radius);
-            const totalAngleDeg = (totalTextWidth / circumference) * 360;
-
-            let currentAngleDeg = -totalAngleDeg / 2;
-            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-
-            for (let i = 0; i < styledChars.length; i++) {
-                const charWidth = charWidths[i];
-                const angleForCharCenter = (charWidth / 2 / totalTextWidth) * totalAngleDeg;
-                currentAngleDeg += angleForCharCenter;
-
-                const currentAngleRad = currentAngleDeg * (Math.PI / 180);
-                
-                const x = Math.sin(currentAngleRad) * radius;
-                const y = (1 - Math.cos(currentAngleRad)) * radius;
-
-                charLayouts.push({ ...styledChars[i], width: charWidth, x, y: radius > 0 ? y : -y, rotate: currentAngleDeg });
-
-                const angleForCharEnd = (charWidth / 2 / totalTextWidth) * totalAngleDeg;
-                const angleForSpacing = (letterSpacing / totalTextWidth) * totalAngleDeg;
-                currentAngleDeg += angleForCharEnd + angleForSpacing;
-            }
-            
-            charLayouts.forEach(l => {
-                const angleRad = (l.rotate) * (Math.PI / 180);
-                const x1 = l.x - (l.width/2) * Math.cos(angleRad);
-                const x2 = l.x + (l.width/2) * Math.cos(angleRad);
-                const y1 = l.y - (l.width/2) * Math.sin(angleRad);
-                const y2 = l.y + (l.width/2) * Math.sin(angleRad);
-                minX = Math.min(minX, x1, x2);
-                maxX = Math.max(maxX, x1, x2);
-                minY = Math.min(minY, y1, y2, l.y - style.fontSize, l.y + style.fontSize);
-                maxY = Math.max(maxY, y1, y2, l.y - style.fontSize, l.y + style.fontSize);
-            });
-
-            const offsetX = -minX;
-            const offsetY = -minY;
-
-            charLayouts.forEach(layout => {
-                layout.x += offsetX;
-                layout.y += offsetY;
-            });
-
-            containerWidth = maxX - minX;
-            containerHeight = maxY - minY;
-
-            if (curve < 0) {
-                charLayouts.forEach(layout => {
-                    layout.y = containerHeight - layout.y;
-                    layout.rotate = -layout.rotate;
-                });
-            }
-            if (!isCancelled) {
-                 setLayout({ chars: charLayouts, containerWidth, containerHeight });
-            }
-        };
-
-        calculateLayout();
-
-        return () => {
-            isCancelled = true;
-            isMountedRef.current = false;
-            if (measurementDiv) {
-                document.body.removeChild(measurementDiv);
-            }
-        };
-    }, [text, style]);
-    
-    const handleClick = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        onSelect(e);
-    };
-
-    if (Math.abs(curve) < 1) {
-        const isVertical = writingMode === 'vertical-rl';
-
-        const flatWrapperStyle: React.CSSProperties = {
-             transform: `rotate(${rotation || 0}deg)`,
-             cursor: 'pointer',
-             outline: isSelected ? '2px solid #3b82f6' : 'none',
-             outlineOffset: '2px',
-             ...(isVertical && {
-                display: 'flex',
-                width: '100%',
-                height: '100%',
-                justifyContent: textAlign === 'center' ? 'center' : textAlign === 'right' ? 'flex-end' : 'flex-start'
-             })
-        };
-
-        const flatTextStyle: React.CSSProperties = {
-            ...style,
-            whiteSpace: 'pre-wrap',
-            overflowWrap: 'break-word',
-            writingMode: writingMode || 'horizontal-tb',
-            WebkitTextStroke: style.textStroke,
-            textShadow: style.textShadow,
-            ...isColorGradient ? {
-                background: style.color,
-                WebkitBackgroundClip: 'text',
-                backgroundClip: 'text',
-                color: 'transparent',
-                WebkitTextFillColor: 'transparent',
-            } : {
-                color: style.color,
-            }
-        };
+        const el = document.createElement('span');
+        el.textContent = span.text;
+        const effectiveStyle: TextSpanStyle = span.style || {};
+        // Only apply styles that are different from a potential base style.
+        // For simplicity here, we apply the main ones.
+        if (effectiveStyle.fontWeight) el.style.fontWeight = effectiveStyle.fontWeight.toString();
+        if (effectiveStyle.fontFamily) el.style.fontFamily = effectiveStyle.fontFamily;
+        if (effectiveStyle.color && !isGradient(effectiveStyle.color)) el.style.color = effectiveStyle.color;
         
-        if (isVertical) {
-             delete flatTextStyle.textAlign;
+        return el.outerHTML;
+    }).join('');
+};
+
+const htmlToSpans = (container: HTMLElement): TextSpan[] => {
+    const newSpans: TextSpan[] = [];
+
+    function traverse(node: Node, baseStyle: TextSpanStyle) {
+        if (node.nodeType === Node.TEXT_NODE) {
+            if (node.textContent) {
+                newSpans.push({ text: node.textContent, style: { ...baseStyle } });
+            }
+            return;
         }
 
-        return (
-            <div style={flatWrapperStyle} onClick={handleClick}>
-                <div style={flatTextStyle} dangerouslySetInnerHTML={{ __html: text }} />
-            </div>
-        )
+        if (node.nodeType === Node.ELEMENT_NODE) {
+            const el = node as HTMLElement;
+            let newStyle = { ...baseStyle };
+
+            // Handle styles from SPAN tags generated by spansToHtml
+            if (el.tagName === 'SPAN') {
+                if (el.style.fontWeight) newStyle.fontWeight = parseInt(el.style.fontWeight, 10) || 400;
+                if (el.style.fontFamily) newStyle.fontFamily = el.style.fontFamily;
+                if (el.style.color) newStyle.color = el.style.color;
+            } 
+            // Handle browser-generated tags like B, I, etc.
+            else if (el.tagName === 'B' || el.tagName === 'STRONG') {
+                newStyle.fontWeight = 700;
+            } else if (el.tagName === 'I' || el.tagName === 'EM') {
+                // newStyle.fontStyle = 'italic'; // We don't have this style yet, but could be added
+            }
+
+            // If the element is a block element like DIV or P, add a newline after traversing its children
+            const isBlock = window.getComputedStyle(el).display === 'block';
+
+            if (el.childNodes.length > 0) {
+                 Array.from(el.childNodes).forEach(child => traverse(child, newStyle));
+            }
+
+            // Browsers often add <br> or wrap lines in <div>. This helps create newlines.
+            if (isBlock && el.nextSibling) {
+                 const lastSpan = newSpans[newSpans.length - 1];
+                 if (lastSpan && !lastSpan.text.endsWith('\n')) {
+                    lastSpan.text += '\n';
+                 }
+            }
+        }
     }
 
+    Array.from(container.childNodes).forEach(child => traverse(child, {}));
+    
+    // Merge adjacent spans if they have identical styles
+    if (newSpans.length < 2) return newSpans.filter(s => s.text);
+
+    const mergedSpans: TextSpan[] = [newSpans[0]];
+    for (let i = 1; i < newSpans.length; i++) {
+        const last = mergedSpans[mergedSpans.length - 1];
+        const current = newSpans[i];
+        if (JSON.stringify(last.style) === JSON.stringify(current.style)) {
+            last.text += current.text;
+        } else {
+            mergedSpans.push(current);
+        }
+    }
+    
+    return mergedSpans.filter(s => s.text); // Remove empty spans
+};
+
+
+const getStyleForSpan = (baseStyle: TextSection['style'], spanStyle: TextSpanStyle): React.CSSProperties => {
+    return {
+        ...baseStyle,
+        ...spanStyle,
+        whiteSpace: 'pre-wrap',
+        overflowWrap: 'break-word',
+        display: 'inline', // Ensure spans flow correctly
+    };
+};
+
+// SVG Renderer for advanced effects
+const SvgTextRenderer = ({ section }: { section: TextSection }) => {
+    const { style, content, rotation = 0 } = section;
+    const { curve = 0, letterSpacing = 0, writingMode, textAlign } = style;
+    const needsSvg = Math.abs(curve) > 0 || (content && content.some(span => isGradient(span.style.textStroke || '')));
+    if (!needsSvg) return null;
+
+    const renderGradientDef = (gradStr: string | undefined, id: string) => {
+        if (!gradStr || !isGradient(gradStr)) return null;
+        const grad = parseGradientString(gradStr);
+        if (!grad) return null;
+        if (grad.type === 'linear') return <linearGradient id={id} gradientTransform={`rotate(${grad.angle})`}><>{grad.stops.map(s => <stop key={s.id} offset={`${s.position*100}%`} stopColor={s.color}/>)}</></linearGradient>
+        if (grad.type === 'radial') return <radialGradient id={id} cx={`${grad.position.x}%`} cy={`${grad.position.y}%`} r="50%" gradientUnits="userSpaceOnUse"><>{grad.stops.map(s => <stop key={s.id} offset={`${s.position*100}%`} stopColor={s.color}/>)}</></radialGradient>
+        return null;
+    };
+
+    const textAnchor = textAlign === 'center' ? 'middle' : textAlign === 'right' ? 'end' : 'start';
+    let xPos = '0';
+    if(textAlign === 'center') xPos = '50%';
+    if(textAlign === 'right') xPos = '100%';
+
     return (
-        <div
-            onClick={handleClick}
-            style={{
-                width: layout.containerWidth,
-                height: layout.containerHeight,
-                position: 'relative',
-                transform: `rotate(${rotation || 0}deg)`,
-                cursor: 'pointer',
-                outline: isSelected ? '2px solid #3b82f6' : 'none',
-                outlineOffset: '2px',
-            }}
-        >
-            {layout.chars.map((charLayout, index) => (
-                <span
-                    key={index}
-                    style={{
-                        ...charLayout.styles,
-                        WebkitTextStroke: style.textStroke,
-                        textShadow: style.textShadow,
-                        position: 'absolute',
-                        left: 0,
-                        top: 0,
-                        transformOrigin: 'center center',
-                        transform: `translate(${charLayout.x}px, ${charLayout.y}px) rotate(${charLayout.rotate}deg)`,
-                        ...isGradient(charLayout.styles.color || '') ? {
-                            background: charLayout.styles.color,
-                            WebkitBackgroundClip: 'text',
-                            backgroundClip: 'text',
-                            color: 'transparent',
-                            WebkitTextFillColor: 'transparent',
-                        } : {
-                            color: charLayout.styles.color,
-                        },
-                        backgroundColor: charLayout.styles.backgroundColor,
-                    }}
-                >
-                    {charLayout.char}
-                </span>
-            ))}
+        <svg width="100%" height="100%" overflow="visible" className="pointer-events-none">
+            <defs>
+                {(content || []).map((span, i) => {
+                    const spanId = `${section.id}-span-${i}`;
+                    return <React.Fragment key={spanId}>{renderGradientDef(span.style.color, `fill-${spanId}`)}{renderGradientDef(span.style.textStroke, `stroke-${spanId}`)}</React.Fragment>;
+                })}
+            </defs>
+            <text x={xPos} y={style.fontSize} textAnchor={textAnchor} style={{ fontFamily: style.fontFamily, fontSize: style.fontSize, fontWeight: style.fontWeight, letterSpacing: `${letterSpacing || 0}px` }} paintOrder="stroke" transform={`rotate(${rotation}, 50, 50)`}>
+                {(content || []).map((span, i) => {
+                    const spanId = `${section.id}-span-${i}`;
+                    const spanStyle = getStyleForSpan(style, span.style);
+                    const isFillGradient = isGradient(span.style.color);
+                    const isStrokeGradient = isGradient(span.style.textStroke);
+                    const strokeParts = span.style.textStroke?.split(' ') || ['0px'];
+                    return <tspan key={i} style={spanStyle} fill={isFillGradient ? `url(#fill-${spanId})` : spanStyle.color} stroke={isStrokeGradient ? `url(#stroke-${spanId})` : span.style.textStroke?.split(' ').slice(1).join(' ')} strokeWidth={strokeParts[0]}>{span.text}</tspan>;
+                })}
+            </text>
+        </svg>
+    );
+};
+
+
+interface EditableTextSectionProps {
+    section: TextSection;
+    isSelected: boolean;
+    isEditing: boolean;
+    onSelect: (e: React.MouseEvent) => void;
+    onEnterEditMode: () => void;
+    onExitEditMode: () => void;
+    onUpdateContent: (newContent: TextSpan[]) => void;
+    onSelectionChange: (selection: { start: number; end: number } | null) => void;
+}
+
+
+export const EditableTextSection = (props: EditableTextSectionProps) => {
+    const { section, isSelected, isEditing, onSelect, onEnterEditMode, onExitEditMode, onUpdateContent, onSelectionChange } = props;
+    const { style, content, rotation = 0 } = section;
+    const { curve = 0, writingMode } = style;
+    
+    const contentRef = useRef<HTMLDivElement>(null);
+    const [isComposing, setIsComposing] = useState(false);
+    const lastHtml = useRef('');
+
+    const needsSvg = Math.abs(curve) > 0 || (content && content.some(span => isGradient(span.style.textStroke || '')));
+
+    useEffect(() => {
+        if (isEditing && contentRef.current) {
+            contentRef.current.focus();
+        } else if (!isEditing) {
+            // When exiting edit mode, ensure selection is cleared.
+            onSelectionChange(null);
+        }
+    }, [isEditing]);
+
+    // This effect is responsible for syncing the controlled `content` prop to the editable div's HTML.
+    useEffect(() => {
+        const div = contentRef.current;
+        if (div && isEditing) {
+            const newHtml = spansToHtml(content);
+            if (lastHtml.current !== newHtml) {
+                // Save selection before updating DOM
+                const selection = window.getSelection();
+                const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+                const selectionIndices = range ? getSelectionIndices(div) : null;
+
+                div.innerHTML = newHtml;
+                lastHtml.current = newHtml;
+
+                // Restore selection after updating DOM
+                if (selectionIndices && selection) {
+                    restoreSelection(div, selectionIndices);
+                }
+            }
+        }
+    }, [content, isEditing]);
+
+    const handleInput = useCallback(() => {
+        if (!isEditing || !contentRef.current || isComposing) return;
+        if (contentRef.current.innerHTML !== lastHtml.current) {
+            const newSpans = htmlToSpans(contentRef.current);
+            lastHtml.current = spansToHtml(newSpans); // Update lastHtml to prevent feedback loop
+            onUpdateContent(newSpans);
+        }
+    }, [isEditing, onUpdateContent, isComposing]);
+    
+    const getSelectionIndices = useCallback((element: HTMLElement): { start: number, end: number } | null => {
+        const selection = window.getSelection();
+        if (!selection || selection.rangeCount === 0) return null;
+        
+        const range = selection.getRangeAt(0);
+        if (!element.contains(range.startContainer) || !element.contains(range.endContainer)) return null;
+
+        let charCount = 0;
+        let startOffset = -1;
+        let endOffset = -1;
+
+        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null);
+        let node: Node | null;
+
+        while ((node = walker.nextNode())) {
+            const isStart = node === range.startContainer;
+            const isEnd = node === range.endContainer;
+            if (isStart) startOffset = charCount + range.startOffset;
+            if (isEnd) endOffset = charCount + range.endOffset;
+            if (startOffset !== -1 && endOffset !== -1) break;
+            charCount += node.textContent?.length || 0;
+        }
+        
+        if (startOffset === -1 || endOffset === -1) return null;
+        return { start: Math.min(startOffset, endOffset), end: Math.max(startOffset, endOffset) };
+    }, []);
+
+    const restoreSelection = (element: HTMLElement, indices: { start: number, end: number }) => {
+        let charCount = 0;
+        const range = document.createRange();
+        let startNode: Node | undefined, startIdx = 0, endNode: Node | undefined, endIdx = 0;
+
+        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null);
+        let node: Node | null;
+
+        while ((node = walker.nextNode())) {
+            const nextCharCount = charCount + (node.textContent?.length || 0);
+            if (!startNode && indices.start >= charCount && indices.start <= nextCharCount) {
+                startNode = node;
+                startIdx = indices.start - charCount;
+            }
+            if (!endNode && indices.end >= charCount && indices.end <= nextCharCount) {
+                endNode = node;
+                endIdx = indices.end - charCount;
+                break; // Found both, we can stop
+            }
+            charCount = nextCharCount;
+        }
+
+        if (startNode && endNode) {
+            range.setStart(startNode, startIdx);
+            range.setEnd(endNode, endIdx);
+            const selection = window.getSelection();
+            if (selection) {
+                selection.removeAllRanges();
+                selection.addRange(range);
+            }
+        }
+    };
+    
+    // Use a document-level listener for selection changes, but only process if editing.
+    useEffect(() => {
+        const handleSelectionChange = () => {
+            if (isEditing && contentRef.current) {
+                const selection = window.getSelection();
+                if (selection && selection.rangeCount > 0 && contentRef.current.contains(selection.anchorNode)) {
+                    const indices = getSelectionIndices(contentRef.current);
+                     onSelectionChange(indices);
+                } else {
+                    // This case handles when selection moves outside the element, but we don't nullify
+                    // the state here to allow clicking on the inspector panel without losing selection state.
+                    // The parent component handles nullifying on canvas click.
+                }
+            }
+        };
+
+        document.addEventListener('selectionchange', handleSelectionChange);
+        return () => document.removeEventListener('selectionchange', handleSelectionChange);
+    }, [isEditing, getSelectionIndices, onSelectionChange]);
+
+
+    const wrapperStyle: React.CSSProperties = {
+        width: '100%',
+        height: '100%',
+        cursor: isEditing ? 'text' : 'pointer',
+        outline: isSelected ? '2px solid #3b82f6' : 'none',
+        outlineOffset: '2px',
+        position: 'relative',
+        // Apply base text alignment properties to the container
+        textAlign: style.textAlign,
+        lineHeight: style.lineHeight,
+    };
+    
+    if (isEditing) {
+        // When editing, apply base styles directly for a consistent experience
+        Object.assign(wrapperStyle, {
+            fontFamily: style.fontFamily,
+            fontSize: style.fontSize,
+            fontWeight: style.fontWeight,
+            letterSpacing: style.letterSpacing,
+            color: style.color,
+            whiteSpace: 'pre-wrap',
+            overflowWrap: 'break-word',
+        });
+
+        return (
+            <div
+                ref={contentRef}
+                style={wrapperStyle}
+                contentEditable={true}
+                suppressContentEditableWarning={true}
+                onInput={handleInput}
+                onCompositionStart={() => setIsComposing(true)}
+                onCompositionEnd={() => {
+                    setIsComposing(false);
+                    // Trigger input manually after composition ends for IME support
+                    handleInput();
+                }}
+                onMouseDown={e => e.stopPropagation()} // Prevent parent drag
+                onClick={e => e.stopPropagation()}
+                onDoubleClick={e => e.stopPropagation()}
+            />
+        );
+    }
+    
+    // Static rendering
+    return (
+        <div style={{ ...wrapperStyle }} onClick={onSelect} onDoubleClick={onEnterEditMode}>
+            {needsSvg ? <SvgTextRenderer section={section} /> : (
+                <div style={{ transform: `rotate(${rotation || 0}deg)`, writingMode: writingMode || 'horizontal-tb' }}>
+                    {(content || []).map((span, index) => {
+                        const mergedStyle = getStyleForSpan(style, span.style);
+                        const isFillGradient = isGradient(mergedStyle.color);
+                        
+                        const finalSpanStyle: React.CSSProperties = {
+                           // Base text styles are inherited from the container now
+                           fontFamily: mergedStyle.fontFamily,
+                           fontSize: mergedStyle.fontSize,
+                           fontWeight: mergedStyle.fontWeight,
+                           letterSpacing: mergedStyle.letterSpacing,
+                           lineHeight: mergedStyle.lineHeight,
+                           // Explicitly map effects
+                           textShadow: mergedStyle.textShadow,
+                           WebkitTextStroke: mergedStyle.textStroke,
+                           // Handle color and gradient fill
+                           ...(isFillGradient 
+                               ? { 
+                                   background: mergedStyle.color, 
+                                   WebkitBackgroundClip: 'text', 
+                                   backgroundClip: 'text', 
+                                   color: 'transparent',
+                                   WebkitTextFillColor: 'transparent',
+                                 } 
+                               : { color: mergedStyle.color }
+                           )
+                        };
+
+                        return <span key={index} style={finalSpanStyle}>{span.text}</span>;
+                    })}
+                </div>
+            )}
         </div>
     );
 };

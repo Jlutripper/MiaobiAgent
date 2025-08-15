@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useLayoutEffect, useMemo, useEffect } from 'react';
 import { produce } from 'https://esm.sh/immer@10.1.1';
-import { PosterTemplate, LayoutBox, ArticleSection, TextSection, ImageSection, TextStyleDefinition, DecorationElement } from '../types';
+import { PosterTemplate, LayoutBox, ArticleSection, TextSection, ImageSection, TextStyleDefinition, DecorationElement, TextSpan, TextSpanStyle } from '../types';
 import { EditableDecorationElement } from './EditableDecorationElement';
 import { XMarkIcon, MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon, SpinnerIcon, ArrowUpTrayIcon, LayoutIcon, SparklesIcon } from './icons';
 import { EditableLayoutBox } from './EditableLayoutBox';
@@ -8,6 +8,7 @@ import { resizeAndCompressImage } from './utils/imageUtils';
 import { LayersPanel } from './LayersPanel';
 import { InspectorPanel } from './InspectorPanel';
 import { getPixelBounds, findBoxById } from './utils/layoutUtils';
+import { applyStyleToSelection } from './utils/textUtils';
 
 export const FlexLayoutBoxPanel = ({ box, onUpdate }: { box: LayoutBox, onUpdate: (updates: Partial<LayoutBox>) => void }) => (
     <div className="space-y-4">
@@ -80,6 +81,8 @@ export const PosterContent = ({ template, children }: { template: PosterTemplate
 export const PosterTemplateEditor = ({ initialTemplate, onSave, onCancel }: { initialTemplate: PosterTemplate, onSave: (template: PosterTemplate) => void; onCancel: () => void; }) => {
     const [template, setTemplate] = useState(initialTemplate);
     const [selectedPath, setSelectedPath] = useState<string[]>([]);
+    const [editingTextPath, setEditingTextPath] = useState<string[] | null>(null);
+    const [activeTextSelection, setActiveTextSelection] = useState<{ start: number, end: number} | null>(null);
     
     const [isProcessing, setIsProcessing] = useState(false);
     const [saveError, setSaveError] = useState('');
@@ -110,6 +113,17 @@ export const PosterTemplateEditor = ({ initialTemplate, onSave, onCancel }: { in
     }, [template]);
 
     const selectedElement = useMemo(() => findElementByPath(selectedPath), [selectedPath, findElementByPath]);
+
+    const handleSelectPath = (path: string[]) => {
+        setSelectedPath(path);
+        if (JSON.stringify(path) !== JSON.stringify(selectedPath)) {
+            setActiveTextSelection(null);
+            const newElement = findElementByPath(path);
+            if (!newElement || newElement.type !== 'text') {
+                setEditingTextPath(null);
+            }
+        }
+    }
 
     const posterSize = { width: template.width, height: template.height };
     
@@ -142,9 +156,10 @@ export const PosterTemplateEditor = ({ initialTemplate, onSave, onCancel }: { in
         return () => { if (currentWrapper) observer.unobserve(currentWrapper); };
     }, [fitToScreen]);
 
-    const handleMouseDown = useCallback((e: React.MouseEvent<HTMLElement>) => {
+    const handleCanvasMouseDown = useCallback((e: React.MouseEvent<HTMLElement>) => {
         const target = e.target as HTMLElement;
-        if (target.closest('.layout-box-wrapper, .decoration-wrapper')) return;
+        // Only allow panning when clicking directly on the canvas background
+        if (target !== editorWrapperRef.current) return;
         
         lastPanPointRef.current = { x: e.clientX, y: e.clientY };
         target.style.cursor = 'grabbing';
@@ -213,6 +228,13 @@ export const PosterTemplateEditor = ({ initialTemplate, onSave, onCancel }: { in
         );
     }, []);
 
+    const handleApplyStyleToSelection = (style: TextSpanStyle) => {
+        if (!activeTextSelection || !selectedElement || selectedElement.type !== 'text') return;
+
+        const newSpans = applyStyleToSelection(selectedElement.content, style, activeTextSelection);
+        updateElementByPath(selectedPath, { content: newSpans });
+    };
+
     const handleFileUpload = async (file: File | null, options: { maxWidth: number; quality: number }, callback: (base64: string) => void) => {
         if (!file) return;
         setIsProcessing(true);
@@ -258,14 +280,14 @@ export const PosterTemplateEditor = ({ initialTemplate, onSave, onCancel }: { in
                              <LayersPanel 
                                 template={template}
                                 selectedPath={selectedPath}
-                                onSelect={setSelectedPath}
+                                onSelect={handleSelectPath}
                                 onUpdate={updater => setTemplate(produce(template, updater))}
                             />
                         </div>
                     </aside>
 
                     {/* Center Panel: Canvas */}
-                    <main ref={editorWrapperRef} className="flex-grow bg-gray-900 flex items-start justify-center p-4 overflow-hidden relative cursor-grab" onMouseDown={handleMouseDown} onWheel={handleWheel}>
+                    <main ref={editorWrapperRef} className="flex-grow bg-gray-900 flex items-start justify-center p-4 overflow-hidden relative cursor-grab" onMouseDown={handleCanvasMouseDown} onWheel={handleWheel} onClick={() => { handleSelectPath([]); setEditingTextPath(null); }}>
                         <div 
                             style={{ 
                                 position: 'absolute',
@@ -274,7 +296,6 @@ export const PosterTemplateEditor = ({ initialTemplate, onSave, onCancel }: { in
                                 transform: `scale(${zoom})`, 
                                 transformOrigin: 'top left',
                             }} 
-                            onClick={() => setSelectedPath([])}
                         >
                              <PosterContent template={template}>
                                  {template.layoutBoxes.map((box) => (
@@ -289,8 +310,12 @@ export const PosterTemplateEditor = ({ initialTemplate, onSave, onCancel }: { in
                                         otherBoxes={template.layoutBoxes.filter(b => b.id !== box.id)}
                                         otherDecorations={template.decorations || []}
                                         onSetGuides={setGuides}
-                                        onSelect={setSelectedPath}
+                                        onSelect={handleSelectPath}
                                         onUpdate={updateElementByPath}
+                                        editingTextPath={editingTextPath}
+                                        onEnterTextEditMode={setEditingTextPath}
+                                        onExitTextEditMode={() => setEditingTextPath(null)}
+                                        onSelectionChange={setActiveTextSelection}
                                     />
                                 ))}
                                 {(template.decorations || []).map(deco => (
@@ -302,7 +327,7 @@ export const PosterTemplateEditor = ({ initialTemplate, onSave, onCancel }: { in
                                         zoom={zoom}
                                         isSelected={isIdSelected(deco.id)}
                                         onSetGuides={setGuides}
-                                        onClick={(e) => { e.stopPropagation(); setSelectedPath([deco.id]); }}
+                                        onClick={(e) => { e.stopPropagation(); handleSelectPath([deco.id]); }}
                                         onUpdate={(id, updates) => updateElementByPath([id], updates)}
                                     />
                                 ))}
@@ -343,6 +368,8 @@ export const PosterTemplateEditor = ({ initialTemplate, onSave, onCancel }: { in
                                 posterWidth={posterSize.width}
                                 onFileUpload={handleFileUpload}
                                 isProcessing={isProcessing}
+                                activeTextSelection={activeTextSelection}
+                                onApplyStyleToSelection={handleApplyStyleToSelection}
                             />
                         </div>
                     </aside>

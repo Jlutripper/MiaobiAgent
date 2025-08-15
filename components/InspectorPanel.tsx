@@ -1,11 +1,10 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { produce } from 'https://esm.sh/immer@10.1.1';
-import { PosterTemplate, LayoutBox, ArticleSection, TextSection, ImageSection, DecorationElement, TextStyleDefinition } from '../types';
+import { PosterTemplate, LayoutBox, ArticleSection, TextSection, ImageSection, DecorationElement, TextStyleDefinition, TextSpan, TextSpanStyle } from '../types';
 import { FONT_FAMILIES, TEMPLATE_TEXT_ROLES } from '../constants';
 import { SpinnerIcon, ArrowUpTrayIcon, TrashIcon, QuestionMarkCircleIcon, LockClosedIcon, LockOpenIcon, PaintBrushIcon, HighlighterIcon, EyeIcon, EyeSlashIcon, AlignTextCenter, AlignTextLeft, AlignTextRight, AlignTextJustifyIcon, PlusIcon, PhotoIcon, AnchorTopLeftIcon, AnchorTopCenterIcon, AnchorTopRightIcon, AnchorCenterLeftIcon, AnchorCenterIcon, AnchorCenterRightIcon, AnchorBottomLeftIcon, AnchorBottomCenterIcon, AnchorBottomRightIcon } from './icons';
 import { RgbaColorPicker as ColorPicker } from './RgbaColorPicker';
 import { Tooltip } from './Tooltip';
-import { RichTextEditor } from './BlockEditorPanel';
 import { DecorationPanel } from './DecorationPanel';
 import { FlexLayoutBoxPanel } from './PosterTemplateEditor';
 import { getAllLayoutBoxes, getPixelBounds, findBoxById } from './utils/layoutUtils';
@@ -395,9 +394,13 @@ const LayoutBoxPanel = ({ box, onUpdate, parentIsGrid, template, mode }: { box: 
     );
 };
 
-const TextSectionPanel = ({ section, onUpdate, parentIsGrid, mode }: { section: TextSection, onUpdate: (updates: Partial<TextSection>) => void, parentIsGrid: boolean, mode: 'template' | 'instance' }) => {
+const TextSectionPanel = ({ section, onUpdate, parentIsGrid, mode, activeTextSelection, onApplyStyleToSelection }: { section: TextSection, onUpdate: (updates: Partial<TextSection>) => void, parentIsGrid: boolean, mode: 'template' | 'instance', activeTextSelection: {start: number, end: number} | null, onApplyStyleToSelection: (style: TextSpanStyle) => void }) => {
     const handleStyleUpdate = (updates: Partial<TextStyleDefinition>) => {
-        onUpdate({ style: { ...section.style, ...updates } });
+        if (activeTextSelection && activeTextSelection.start !== activeTextSelection.end) {
+             onApplyStyleToSelection(updates);
+        } else {
+            onUpdate({ style: { ...section.style, ...updates } });
+        }
     };
 
     const parseCssUnitValue = (cssString: string | undefined): number => {
@@ -458,22 +461,23 @@ const TextSectionPanel = ({ section, onUpdate, parentIsGrid, mode }: { section: 
                 </details>
             )}
             <details className="bg-gray-900/50 p-3 rounded-lg border border-gray-700" open><summary className="font-semibold cursor-pointer">内容与字体</summary><div className="mt-4 space-y-4">
-                 <RichTextEditor html={section.text} onChange={(html) => onUpdate({ text: html })} onBlur={() => {}}/>
+                <p className="text-xs text-gray-400 p-2 bg-gray-800 rounded-md">请直接在画布上选择并修改文本内容与样式。</p>
                 <div><label className="block text-sm font-medium text-gray-400 mb-1">字体</label><select value={section.style.fontFamily} onChange={e => handleStyleUpdate({ fontFamily: e.target.value })} className="w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white">{FONT_FAMILIES.map(font => <option key={font.name} value={font.family}>{font.name}</option>)}</select></div>
                 <div className="flex gap-4"><div className="flex-1"><label className="block text-sm font-medium text-gray-400 mb-1">字号</label><input type="number" value={section.style.fontSize} onChange={e => handleStyleUpdate({ fontSize: parseInt(e.target.value) || 0 })} className="w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white" /></div><div className="flex-1"><label className="block text-sm font-medium text-gray-400 mb-1">字重</label><select value={section.style.fontWeight} onChange={e => handleStyleUpdate({ fontWeight: parseInt(e.target.value, 10) })} className="w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"><option value={400}>常规</option><option value={700}>加粗</option><option value="900">特粗</option></select></div></div>
-                <div className="flex gap-4"><div className="flex-1"><label className="block text-sm font-medium text-gray-400 mb-1">行间距</label><input type="number" step="0.1" value={section.style.lineHeight} onChange={e => handleStyleUpdate({ lineHeight: parseFloat(e.target.value) || 1.5 })} className="w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white" /></div><div className="flex-1"><label className="block text-sm font-medium text-gray-400 mb-1">字间距 (px)</label><input type="number" value={section.style.letterSpacing || 0} onChange={e => handleStyleUpdate({ letterSpacing: parseInt(e.target.value) || 0 })} className="w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white" /></div></div>
-                <div><label className="block text-sm font-medium text-gray-400 mb-1">对齐</label><div className="grid grid-cols-4 gap-2"><button onClick={() => handleStyleUpdate({ textAlign: 'left'})} className={`p-2 rounded-md ${section.style.textAlign === 'left' ? 'bg-blue-600' : 'bg-gray-600 hover:bg-gray-500'}`}><AlignTextLeft className="w-5 h-5 mx-auto" /></button><button onClick={() => handleStyleUpdate({ textAlign: 'center'})} className={`p-2 rounded-md ${section.style.textAlign === 'center' ? 'bg-blue-600' : 'bg-gray-600 hover:bg-gray-500'}`}><AlignTextCenter className="w-5 h-5 mx-auto" /></button><button onClick={() => handleStyleUpdate({ textAlign: 'right'})} className={`p-2 rounded-md ${section.style.textAlign === 'right' ? 'bg-blue-600' : 'bg-gray-600 hover:bg-gray-500'}`}><AlignTextRight className="w-5 h-5 mx-auto" /></button><button onClick={() => handleStyleUpdate({ textAlign: 'justify'})} className={`p-2 rounded-md ${section.style.textAlign === 'justify' ? 'bg-blue-600' : 'bg-gray-600 hover:bg-gray-500'}`}><AlignTextJustifyIcon className="w-5 h-5 mx-auto" /></button></div></div>
+                <div className="flex gap-4"><div className="flex-1"><label className="block text-sm font-medium text-gray-400 mb-1">行间距</label><input type="number" step="0.1" value={section.style.lineHeight} onChange={e => onUpdate({ style: {...section.style, lineHeight: parseFloat(e.target.value) || 1.5} })} className="w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white" /></div><div className="flex-1"><label className="block text-sm font-medium text-gray-400 mb-1">字间距 (px)</label><input type="number" value={section.style.letterSpacing || 0} onChange={e => handleStyleUpdate({ letterSpacing: parseInt(e.target.value) || 0 })} className="w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white" /></div></div>
+                <div><label className="block text-sm font-medium text-gray-400 mb-1">对齐</label><div className="grid grid-cols-4 gap-2"><button onClick={() => onUpdate({ style: {...section.style, textAlign: 'left'} })} className={`p-2 rounded-md ${section.style.textAlign === 'left' ? 'bg-blue-600' : 'bg-gray-600 hover:bg-gray-500'}`}><AlignTextLeft className="w-5 h-5 mx-auto" /></button><button onClick={() => onUpdate({ style: {...section.style, textAlign: 'center'} })} className={`p-2 rounded-md ${section.style.textAlign === 'center' ? 'bg-blue-600' : 'bg-gray-600 hover:bg-gray-500'}`}><AlignTextCenter className="w-5 h-5 mx-auto" /></button><button onClick={() => onUpdate({ style: {...section.style, textAlign: 'right'} })} className={`p-2 rounded-md ${section.style.textAlign === 'right' ? 'bg-blue-600' : 'bg-gray-600 hover:bg-gray-500'}`}><AlignTextRight className="w-5 h-5 mx-auto" /></button><button onClick={() => onUpdate({ style: {...section.style, textAlign: 'justify'} })} className={`p-2 rounded-md ${section.style.textAlign === 'justify' ? 'bg-blue-600' : 'bg-gray-600 hover:bg-gray-500'}`}><AlignTextJustifyIcon className="w-5 h-5 mx-auto" /></button></div></div>
                  <div>
                     <label className="block text-sm font-medium text-gray-400 mb-1">文字方向</label>
                     <div className="grid grid-cols-2 gap-2">
-                        <button onClick={() => handleStyleUpdate({ writingMode: 'horizontal-tb'})} className={`p-2 rounded-md ${(!section.style.writingMode || section.style.writingMode === 'horizontal-tb') ? 'bg-blue-600' : 'bg-gray-600 hover:bg-gray-500'}`}>水平</button>
-                        <button onClick={() => handleStyleUpdate({ writingMode: 'vertical-rl'})} className={`p-2 rounded-md ${section.style.writingMode === 'vertical-rl' ? 'bg-blue-600' : 'bg-gray-600 hover:bg-gray-500'}`}>垂直</button>
+                        <button onClick={() => onUpdate({ style: {...section.style, writingMode: 'horizontal-tb'} })} className={`p-2 rounded-md ${(!section.style.writingMode || section.style.writingMode === 'horizontal-tb') ? 'bg-blue-600' : 'bg-gray-600 hover:bg-gray-500'}`}>水平</button>
+                        <button onClick={() => onUpdate({ style: {...section.style, writingMode: 'vertical-rl'} })} className={`p-2 rounded-md ${section.style.writingMode === 'vertical-rl' ? 'bg-blue-600' : 'bg-gray-600 hover:bg-gray-500'}`}>垂直</button>
                     </div>
                 </div>
             </div></details>
              <details className="bg-gray-900/50 p-3 rounded-lg border border-gray-700"><summary className="font-semibold cursor-pointer">效果</summary><div className="mt-4 space-y-4">
+                <ColorSwatch label="颜色" value={section.style.color} onChange={v => handleStyleUpdate({ color: v })} />
                 <div><label className="block text-sm font-medium text-gray-300 mb-1">旋转 (°)</label><input type="number" value={section.rotation || 0} onChange={e => onUpdate({ rotation: parseInt(e.target.value) || 0 })} className="w-full p-2 bg-gray-700 border border-gray-600 rounded-md" /></div>
-                <div><label className="block text-sm font-medium text-gray-300 mb-1">文字弯曲</label><input type="range" min="-100" max="100" value={section.style.curve || 0} onChange={e => handleStyleUpdate({ curve: parseInt(e.target.value, 10) })} className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer" /></div>
+                <div><label className="block text-sm font-medium text-gray-300 mb-1">文字弯曲</label><input type="range" min="-100" max="100" value={section.style.curve || 0} onChange={e => onUpdate({ style: {...section.style, curve: parseInt(e.target.value, 10)} })} className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer" /></div>
                 <div><label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-2"><input type="checkbox" checked={!!section.style.textShadow} onChange={() => handleStyleUpdate({ textShadow: section.style.textShadow ? undefined : '2px 2px 4px rgba(0,0,0,0.5)' })} className="h-4 w-4 rounded bg-gray-600 text-purple-600 focus:ring-purple-500 border-gray-500"/>阴影</label>
                     {section.style.textShadow && <div className="space-y-2 pl-6">
                         <div className="grid grid-cols-3 gap-2 text-xs"><span>X</span><span>Y</span><span>模糊</span></div>
@@ -482,13 +486,13 @@ const TextSectionPanel = ({ section, onUpdate, parentIsGrid, mode }: { section: 
                             <input type="number" value={shadowOffsetY} onChange={e => handleTextShadowChange('offsetY', parseInt(e.target.value, 10))} className="w-full p-1 bg-gray-600 rounded-md" />
                             <input type="number" value={shadowBlur} onChange={e => handleTextShadowChange('blur', parseInt(e.target.value, 10))} className="w-full p-1 bg-gray-600 rounded-md" />
                         </div>
-                        <ColorSwatch value={shadowColor} onChange={v => handleTextShadowChange('color', v)} />
+                        <ColorSwatch value={shadowColor} onChange={v => handleTextShadowChange('color', v)} allowGradient={false}/>
                     </div>}
                 </div>
                 <div><label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-2"><input type="checkbox" checked={!!section.style.textStroke} onChange={() => handleStyleUpdate({ textStroke: section.style.textStroke ? undefined : '1px rgba(255,255,255,1)' })} className="h-4 w-4 rounded bg-gray-600 text-purple-600 focus:ring-purple-500 border-gray-500"/>描边</label>
                     {section.style.textStroke && <div className="space-y-2 pl-6">
                         <div><label className="text-xs">宽度 (px)</label><input type="number" value={strokeWidth} onChange={e => handleTextStrokeChange('width', parseFloat(e.target.value))} className="w-full p-1 bg-gray-600 rounded-md" /></div>
-                        <ColorSwatch label="颜色" value={strokeColor} onChange={v => handleTextStrokeChange('color', v)} allowGradient={false} />
+                        <ColorSwatch label="颜色" value={strokeColor} onChange={v => handleTextStrokeChange('color', v)} allowGradient={true} />
                     </div>}
                 </div>
             </div></details>
@@ -569,6 +573,8 @@ export const InspectorPanel = ({
     onFileUpload,
     isProcessing,
     posterWidth,
+    activeTextSelection,
+    onApplyStyleToSelection,
     mode = 'template'
 }: {
     selectedElement: { element: ArticleSection | DecorationElement | null, path: string[] };
@@ -579,41 +585,57 @@ export const InspectorPanel = ({
     isProcessing: boolean;
     posterWidth: number;
     mode?: 'template' | 'instance';
+    activeTextSelection?: { start: number, end: number } | null;
+    onApplyStyleToSelection?: (style: TextSpanStyle) => void;
 }) => {
     const allLayoutBoxes = useMemo(() => {
         if (!template) return [];
         return getAllLayoutBoxes(template.layoutBoxes);
     }, [template]);
 
-    if (!selectedElement || !selectedElement.element) {
-        if (mode === 'template') {
-            return <GlobalPanel template={template} onUpdate={onGlobalUpdate} onFileUpload={onFileUpload} isProcessing={isProcessing} />;
-        }
-        return <div className="text-gray-400 text-center p-4">请从画布中选择一个元素进行编辑。</div>;
-    }
+    const handleMouseDown = (e: React.MouseEvent) => {
+        // Stop propagation to prevent canvas click handlers from firing,
+        // which would incorrectly exit text editing mode.
+        e.stopPropagation();
+    };
 
-    const { element, path } = selectedElement;
-    const { parent } = findElementInTemplate(template, path);
-    const parentIsGrid = !!parent && 'layoutMode' in parent && parent.layoutMode === 'grid';
+    const panelContent = () => {
+        if (!selectedElement || !selectedElement.element) {
+            if (mode === 'template') {
+                return <GlobalPanel template={template} onUpdate={onGlobalUpdate} onFileUpload={onFileUpload} isProcessing={isProcessing} />;
+            }
+            return <div className="text-gray-400 text-center p-4">请从画布中选择一个元素进行编辑。</div>;
+        }
+
+        const { element, path } = selectedElement;
+        const { parent } = findElementInTemplate(template, path);
+        const parentIsGrid = !!parent && 'layoutMode' in parent && parent.layoutMode === 'grid';
+        
+        switch (element.type) {
+            case 'layout_box':
+                return <LayoutBoxPanel box={element} onUpdate={onUpdate} parentIsGrid={parentIsGrid} template={template} mode={mode} />;
+            case 'text':
+                return <TextSectionPanel section={element} onUpdate={onUpdate} parentIsGrid={parentIsGrid} mode={mode} activeTextSelection={activeTextSelection || null} onApplyStyleToSelection={onApplyStyleToSelection!} />;
+            case 'image':
+                return <ImageSectionPanel section={element} onUpdate={onUpdate} onFileUpload={onFileUpload} isProcessing={isProcessing} posterWidth={posterWidth} parentIsGrid={parentIsGrid} mode={mode} />;
+            case 'decoration':
+                 return <DecorationPanel 
+                    decoration={element} 
+                    onUpdate={onUpdate} 
+                    onDelete={() => {}} 
+                    onUpload={(file) => onFileUpload(file, { maxWidth: 512, quality: 0.8 }, (b64:string) => onUpdate({ imageUrl: b64 }))}
+                    availableLayoutBoxes={allLayoutBoxes}
+                    parentSize={{ width: posterWidth, height: template.height }}
+                    template={template}
+                />;
+            default:
+                return <div className="text-gray-400 text-center p-4">请选择一个元素进行检查。</div>;
+        }
+    };
     
-    switch (element.type) {
-        case 'layout_box':
-            return <LayoutBoxPanel box={element} onUpdate={onUpdate} parentIsGrid={parentIsGrid} template={template} mode={mode} />;
-        case 'text':
-            return <TextSectionPanel section={element} onUpdate={onUpdate} parentIsGrid={parentIsGrid} mode={mode} />;
-        case 'image':
-            return <ImageSectionPanel section={element} onUpdate={onUpdate} onFileUpload={onFileUpload} isProcessing={isProcessing} posterWidth={posterWidth} parentIsGrid={parentIsGrid} mode={mode} />;
-        case 'decoration':
-             return <DecorationPanel 
-                decoration={element} 
-                onUpdate={onUpdate} 
-                onDelete={() => {}} 
-                onUpload={(file) => onFileUpload(file, { maxWidth: 512, quality: 0.8 }, (b64:string) => onUpdate({ imageUrl: b64 }))}
-                availableLayoutBoxes={allLayoutBoxes}
-                parentSize={{ width: posterWidth, height: template.height }}
-                template={template}
-            />;
-        default:
-            return <div className="text-gray-400 text-center p-4">请选择一个元素进行检查。</div>;
-    }
+    return (
+        <div onMouseDown={handleMouseDown}>
+            {panelContent()}
+        </div>
+    );
 };

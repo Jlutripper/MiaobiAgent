@@ -158,7 +158,7 @@ export const LongArticleTemplateEditor = ({ initialTemplate, onSave, onCancel }:
             return;
         }
         const newBlock: TextSection | ImageSection = type === 'text'
-            ? { id: newId, type: 'text', role: 'body', text: '新文本区块', style: DEFAULT_TEXT_STYLE, marginTop: 0, marginBottom: 16 }
+            ? { id: newId, type: 'text', role: 'body', content: [{ text: '新文本区块', style: {} }], style: DEFAULT_TEXT_STYLE, marginTop: 0, marginBottom: 16 }
             : { id: newId, type: 'image', role: 'illustration', imageUrl: NEW_IMAGE_PLACEHOLDER, prompt: 'placeholder image', marginTop: 0, marginBottom: 16 };
         setTemplate(prev => {
             const newSections = [...prev.sections];

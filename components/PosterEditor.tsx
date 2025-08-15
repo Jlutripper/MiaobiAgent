@@ -1,14 +1,14 @@
 import React, { useState, useRef, useCallback, useLayoutEffect, useMemo, useEffect } from 'react';
-import { createRoot } from 'react-dom/client';
 import html2canvas from 'html2canvas';
 import { produce } from 'https://esm.sh/immer@10.1.1';
-import { ResultData, ArticleSection, LayoutBox, PosterTemplate, DecorationElement } from '../types';
+import { ResultData, ArticleSection, LayoutBox, PosterTemplate, DecorationElement, TextSpanStyle } from '../types';
 import { DownloadIcon, XMarkIcon, SpinnerIcon, MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon } from './icons';
 import { PosterContent } from './PosterTemplateEditor';
 import { EditableLayoutBox } from './EditableLayoutBox';
 import { EditableDecorationElement } from './EditableDecorationElement';
 import { InspectorPanel } from './InspectorPanel';
 import { LayersPanel } from './LayersPanel';
+import { applyStyleToSelection } from './utils/textUtils';
 
 type Guide = { x?: number; y?: number; x1?: number; y1?: number; x2?: number; y2?: number; dist?: number };
 
@@ -45,6 +45,8 @@ export const PosterEditor = ({ initialData, templates, onExit }: PosterEditorPro
       coverImageUrl: '',
   });
   const [selectedPath, setSelectedPath] = useState<string[]>([]);
+  const [editingTextPath, setEditingTextPath] = useState<string[] | null>(null);
+  const [activeTextSelection, setActiveTextSelection] = useState<{ start: number, end: number} | null>(null);
   
   const [isExporting, setIsExporting] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -53,12 +55,25 @@ export const PosterEditor = ({ initialData, templates, onExit }: PosterEditorPro
   const [guides, setGuides] = useState<Guide[]>([]);
 
   const editorWrapperRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLDivElement>(null); // Ref for the actual canvas content
   const lastPanPointRef = useRef({ x: 0, y: 0 });
   
   const posterSize = { width: data.width, height: data.height };
   
   const selectedElement = useMemo(() => findElementByPath(selectedPath, data), [selectedPath, data]);
   const isIdSelected = (id: string) => selectedPath.includes(id);
+
+  const handleSelectPath = (path: string[]) => {
+      setSelectedPath(path);
+      if (JSON.stringify(path) !== JSON.stringify(selectedPath)) {
+          setActiveTextSelection(null);
+          // If we select a non-text element or nothing, exit text editing mode.
+          const newElement = findElementByPath(path, data);
+          if (!newElement || newElement.type !== 'text') {
+              setEditingTextPath(null);
+          }
+      }
+  }
 
   const updateElementByPath = useCallback((path: string[], updates: any) => {
     setData(
@@ -89,6 +104,12 @@ export const PosterEditor = ({ initialData, templates, onExit }: PosterEditorPro
     );
   }, [setData]);
 
+  const handleApplyStyleToSelection = (style: TextSpanStyle) => {
+      if (!activeTextSelection || !selectedElement || selectedElement.type !== 'text') return;
+      const newSpans = applyStyleToSelection(selectedElement.content, style, activeTextSelection);
+      updateElementByPath(selectedPath, { content: newSpans });
+  };
+
   const fitToScreen = useCallback(() => {
     const wrapper = editorWrapperRef.current;
     if (!wrapper || !posterSize.width || !posterSize.height) return;
@@ -111,9 +132,9 @@ export const PosterEditor = ({ initialData, templates, onExit }: PosterEditorPro
     return () => { if (currentWrapper) observer.unobserve(currentWrapper); };
   }, [fitToScreen]);
   
-  const handleWrapperMouseDown = useCallback((e: React.MouseEvent) => {
+  const handleCanvasMouseDown = useCallback((e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
-    if (target.closest('.layout-box-wrapper, .decoration-wrapper')) return;
+    if (target !== editorWrapperRef.current) return;
     
     lastPanPointRef.current = { x: e.clientX, y: e.clientY };
     if (editorWrapperRef.current) editorWrapperRef.current.style.cursor = 'grabbing';
@@ -153,21 +174,39 @@ export const PosterEditor = ({ initialData, templates, onExit }: PosterEditorPro
   const handleExport = async () => {
     if (isExporting) return;
     setIsExporting(true);
-    setSelectedPath([]);
-    await new Promise(res => setTimeout(res, 50));
+    setSelectedPath([]); // Deselect everything before export for a clean snapshot
     
-    const tempContainer = document.createElement('div');
-    tempContainer.style.position = 'absolute'; tempContainer.style.left = '-9999px'; tempContainer.style.top = '-9999px';
-    document.body.appendChild(tempContainer);
-    const root = createRoot(tempContainer);
+    // Allow deselection to render before cloning
+    await new Promise(res => setTimeout(res, 50)); 
     
+    const sourceElement = canvasRef.current;
+    if (!sourceElement) {
+        setIsExporting(false);
+        return;
+    }
+
+    const clone = sourceElement.cloneNode(true) as HTMLElement;
+
+    // "Pristine" clone styles for 1:1 rendering
+    clone.style.position = 'absolute';
+    clone.style.left = '-9999px'; // Move off-screen
+    clone.style.top = '0px';
+    clone.style.transform = 'none'; // Remove any scaling
+    clone.style.width = `${data.width}px`;
+    clone.style.height = `${data.height}px`;
+
+    document.body.appendChild(clone);
+
     try {
-        await new Promise<void>((resolve) => {
-            root.render(<React.StrictMode><PosterContent template={data} /></React.StrictMode>);
-            setTimeout(resolve, 500);
+        const canvas = await html2canvas(clone, {
+            useCORS: true,
+            scale: 2, // Export at 2x resolution for better quality
+            backgroundColor: null,
+            width: data.width,
+            height: data.height,
+            allowTaint: true
         });
         
-        const canvas = await html2canvas(tempContainer.firstChild as HTMLElement, { useCORS: true, scale: 2, backgroundColor: null, width: data.width, height: data.height, allowTaint: true });
         const link = document.createElement('a');
         link.download = `poster-${Date.now()}.png`;
         link.href = canvas.toDataURL('image/png');
@@ -177,11 +216,11 @@ export const PosterEditor = ({ initialData, templates, onExit }: PosterEditorPro
         console.error("Failed to export poster:", error); 
         alert("抱歉，导出海报时出错。");
     } finally {
-        root.unmount();
-        document.body.removeChild(tempContainer);
+        document.body.removeChild(clone);
         setIsExporting(false);
     }
   };
+
 
   const renderGuide = (guide: Guide, index: number) => {
     const style: React.CSSProperties = { position: 'absolute', background: 'rgba(239, 68, 68, 0.8)' };
@@ -209,46 +248,52 @@ export const PosterEditor = ({ initialData, templates, onExit }: PosterEditorPro
                          <LayersPanel 
                             template={data}
                             selectedPath={selectedPath}
-                            onSelect={setSelectedPath}
+                            onSelect={handleSelectPath}
                             onUpdate={updater => setData(produce(data, updater))}
                         />
                     </div>
                 </aside>
 
-                <main ref={editorWrapperRef} className="flex-grow bg-gray-900 flex items-start justify-center p-4 overflow-hidden relative cursor-grab" onMouseDown={handleWrapperMouseDown} onWheel={handleWheel}>
-                    <div style={{ position: 'absolute', top: pan.y, left: pan.x, transform: `scale(${zoom})`, transformOrigin: 'top left' }} onClick={() => setSelectedPath([])}>
-                        <PosterContent template={data}>
-                            {data.layoutBoxes.map((box) => (
-                                <EditableLayoutBox
-                                    key={box.id}
-                                    box={box}
-                                    path={[box.id]}
-                                    editorMode="instance"
-                                    parentSize={posterSize}
-                                    zoom={zoom}
-                                    isSelected={isIdSelected}
-                                    template={data}
-                                    otherBoxes={data.layoutBoxes.filter(b => b.id !== box.id)}
-                                    otherDecorations={data.decorations || []}
-                                    onSetGuides={setGuides}
-                                    onSelect={setSelectedPath}
-                                    onUpdate={updateElementByPath}
-                                />
-                            ))}
-                            {(data.decorations || []).map((deco) => (
-                                <EditableDecorationElement 
-                                    key={deco.id} 
-                                    element={deco} 
-                                    parentSize={posterSize} 
-                                    template={data}
-                                    zoom={zoom} 
-                                    isSelected={isIdSelected(deco.id)}
-                                    onSetGuides={setGuides}
-                                    onClick={(e) => { e.stopPropagation(); setSelectedPath([deco.id]); }}
-                                    onUpdate={(id, updates) => updateElementByPath([id], updates)}
-                                />
-                            ))}
-                        </PosterContent>
+                <main ref={editorWrapperRef} className="flex-grow bg-gray-900 flex items-start justify-center p-4 overflow-hidden relative cursor-grab" onMouseDown={handleCanvasMouseDown} onWheel={handleWheel} onClick={() => { handleSelectPath([]); setEditingTextPath(null); }}>
+                    <div ref={canvasRef} style={{ position: 'absolute', top: pan.y, left: pan.x, transform: `scale(${zoom})`, transformOrigin: 'top left' }}>
+                        <div style={{ width: data.width, height: data.height }}>
+                            <PosterContent template={data}>
+                                {data.layoutBoxes.map((box) => (
+                                    <EditableLayoutBox
+                                        key={box.id}
+                                        box={box}
+                                        path={[box.id]}
+                                        editorMode="instance"
+                                        parentSize={posterSize}
+                                        zoom={zoom}
+                                        isSelected={isIdSelected}
+                                        template={data}
+                                        otherBoxes={data.layoutBoxes.filter(b => b.id !== box.id)}
+                                        otherDecorations={data.decorations || []}
+                                        onSetGuides={setGuides}
+                                        onSelect={handleSelectPath}
+                                        onUpdate={updateElementByPath}
+                                        editingTextPath={editingTextPath}
+                                        onEnterTextEditMode={setEditingTextPath}
+                                        onExitTextEditMode={() => setEditingTextPath(null)}
+                                        onSelectionChange={setActiveTextSelection}
+                                    />
+                                ))}
+                                {(data.decorations || []).map((deco) => (
+                                    <EditableDecorationElement 
+                                        key={deco.id} 
+                                        element={deco} 
+                                        parentSize={posterSize} 
+                                        template={data}
+                                        zoom={zoom} 
+                                        isSelected={isIdSelected(deco.id)}
+                                        onSetGuides={setGuides}
+                                        onClick={(e) => { e.stopPropagation(); handleSelectPath([deco.id]); }}
+                                        onUpdate={(id, updates) => updateElementByPath([id], updates)}
+                                    />
+                                ))}
+                            </PosterContent>
+                        </div>
                     </div>
             
                     <div
@@ -281,6 +326,8 @@ export const PosterEditor = ({ initialData, templates, onExit }: PosterEditorPro
                             posterWidth={posterSize.width}
                             onFileUpload={() => alert('File upload from instance inspector is not implemented yet.')}
                             isProcessing={isProcessing}
+                            activeTextSelection={activeTextSelection}
+                            onApplyStyleToSelection={handleApplyStyleToSelection}
                         />
                      </div>
                 </aside>

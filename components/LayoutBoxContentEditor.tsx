@@ -40,7 +40,7 @@ export const LayoutBoxContentEditor = ({ box, onSave, onCancel, posterWidth }: L
     const handleAddSection = (type: 'text' | 'image') => {
         const newId = `${type}-${Date.now()}`;
         const newSection: TextSection | ImageSection = type === 'text'
-            ? { id: newId, type: 'text', role: 'body', text: 'New Text', style: DEFAULT_TEXT_STYLE, flexGrow: 0, flexShrink: 1 }
+            ? { id: newId, type: 'text', role: 'body', content: [{ text: 'New Text', style: {} }], style: DEFAULT_TEXT_STYLE, flexGrow: 0, flexShrink: 1 }
             : { id: newId, type: 'image', role: 'illustration', imageUrl: NEW_IMAGE_PLACEHOLDER, prompt: 'placeholder image', flexGrow: 0, flexShrink: 1 };
 
         const currentIndex = selectedSectionId ? editedBox.sections.findIndex(s => s.id === selectedSectionId) : -1;

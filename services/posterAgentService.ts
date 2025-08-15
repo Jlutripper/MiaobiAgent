@@ -289,6 +289,8 @@ export const generatePosterLayout = async (
         } catch (e) { console.error("Failed to generate custom background, using template default.", e); }
     }
 
+    const textSpanStyleSchema = { type: Type.OBJECT, properties: {} };
+    const textSpanSchema = { type: Type.OBJECT, properties: { text: { type: Type.STRING }, style: textSpanStyleSchema }, required: ['text', 'style'] };
 
     const compositionSchema = {
         type: Type.OBJECT,
@@ -313,7 +315,11 @@ export const generatePosterLayout = async (
                                         type: Type.OBJECT,
                                         description: "The content for the section. OMIT THIS for locked sections.",
                                         properties: {
-                                            text: { type: Type.STRING, description: "Text for a text section." },
+                                            content: { 
+                                                type: Type.ARRAY, 
+                                                description: "For a text section, an array with one TextSpan object: `[{ \"text\": \"...\", \"style\": {} }]`",
+                                                items: textSpanSchema
+                                            },
                                             prompt: { type: Type.STRING, description: "English prompt for an image section." },
                                             style: {
                                                 type: Type.OBJECT,
@@ -375,8 +381,8 @@ ${templateStructureString}
 5.  **Handle Locked Content:** For any section marked as \`(LOCKED)\`, you are FORBIDDEN from changing its content. In your JSON response, you **MUST OMIT** the entire \`content\` object for these locked sections.
 
 6.  **Content Generation Rules:**
-    -   **LANGUAGE:** All generated \`text\` MUST be in **Chinese**. All image \`prompt\`s MUST be in **English**.
-    -   **TEXT:** If the user provides content, map it to the appropriate text sections. If not, write creative, compelling copy based on the theme.
+    -   **LANGUAGE:** All generated text MUST be in **Chinese**. All image \`prompt\`s MUST be in **English**.
+    -   **TEXT:** If the user provides content, map it to the appropriate text sections. If not, write creative, compelling copy based on the theme. For text sections, the content must be structured as a \`content\` array with a single TextSpan object, like this: \`"content": [{ "text": "Your text here", "style": {} }]\`.
     -   **IMAGES:** Create descriptive, artistic English prompts for all image sections that need one.
 
 7.  **JSON OUTPUT:** Your final output MUST be ONLY a valid JSON object that matches the provided schema.`;
@@ -403,13 +409,13 @@ ${templateStructureString}
             const isNewSection = !originalSection;
 
             if (isNewSection) { 
-                const isText = !!plannedSection.content?.text;
+                const isText = !!plannedSection.content?.content;
                 if (isText) {
                      originalSection = {
                         id: `section-${Date.now()}-${Math.random()}`, type: 'text', role: plannedSection.sectionRole,
-                        text: '',
+                        content: [],
                         style: { fontFamily: "'Noto Sans SC', sans-serif", fontSize: 32, fontWeight: 700, color: '#FFFFFF', textAlign: 'center', lineHeight: 1.5, ...plannedSection.content?.style }
-                    } as TextSection;
+                    };
                 } else { // Is Image
                      originalSection = {
                         id: `section-${Date.now()}-${Math.random()}`, type: 'image', role: plannedSection.sectionRole, imageUrl: '', prompt: ''
@@ -424,11 +430,8 @@ ${templateStructureString}
                 continue;
             }
 
-            if (newSection.type === 'text' && plannedSection.content?.text) {
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = newSection.text;
-                tempDiv.textContent = plannedSection.content.text;
-                newSection.text = tempDiv.innerHTML;
+            if (newSection.type === 'text' && plannedSection.content?.content) {
+                newSection.content = plannedSection.content.content;
             } else if (newSection.type === 'image' && plannedSection.content?.prompt) {
                 newSection.prompt = plannedSection.content.prompt;
             }
@@ -477,7 +480,7 @@ export const adaptPosterToTemplate = async (
         const textContent: Record<string, string> = {};
         const imagePrompts: Record<string, string> = {};
         box.sections.forEach(section => {
-            if (section.type === 'text' && section.role && section.text) textContent[section.role] = section.text;
+            if (section.type === 'text' && section.role && section.content.length > 0) textContent[section.role] = section.content.map(s => s.text).join('');
             if (section.type === 'image' && section.role && section.prompt) imagePrompts[section.role] = section.prompt;
         });
         if (Object.keys(textContent).length > 0 || Object.keys(imagePrompts).length > 0) {
@@ -543,7 +546,7 @@ ${JSON.stringify(newTemplateStructure, null, 2)}
         const boxContent = structuredContent?.[box.role];
         if (!boxContent) return;
         box.sections.forEach(section => {
-            if (section.type === 'text' && boxContent.textContent?.[section.role]) section.text = boxContent.textContent[section.role];
+            if (section.type === 'text' && boxContent.textContent?.[section.role]) section.content = [{ text: boxContent.textContent[section.role], style: {} }];
             else if (section.type === 'image' && boxContent.imagePrompts?.[section.role]) section.prompt = boxContent.imagePrompts[section.role];
         });
     });

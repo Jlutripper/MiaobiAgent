@@ -1,5 +1,5 @@
 import React, { useRef, useCallback, useState, useEffect, useLayoutEffect } from 'react';
-import { DecorationElement, LayoutBox, PosterTemplate } from '../types';
+import { DecorationElement, PosterTemplate } from '../types';
 import { ResizeHandleIcon, RotateCwIcon } from './icons';
 import { getPixelBounds, calculateDecorationStyle } from './utils/layoutUtils';
 
@@ -27,7 +27,9 @@ export const EditableDecorationElement = ({
     onUpdate: (id: string, updates: Partial<DecorationElement>) => void;
 }) => {
     const elementRef = useRef<HTMLDivElement>(null);
+    const imgRef = useRef<HTMLImageElement>(null);
     const [finalStyle, setFinalStyle] = useState<React.CSSProperties>({ visibility: 'hidden' });
+    const [imageAspectRatio, setImageAspectRatio] = useState<number | null>(null);
 
     const interactionRef = useRef<{
         type: 'drag' | 'resize' | 'rotate';
@@ -40,11 +42,39 @@ export const EditableDecorationElement = ({
         elementCenter: { x: number, y: number };
     } | null>(null);
 
+    // Effect to calculate intrinsic aspect ratio of the image
+    useEffect(() => {
+        const img = imgRef.current;
+        if (!img) return;
+
+        const updateAspectRatio = () => {
+            if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+                setImageAspectRatio(img.naturalHeight / img.naturalWidth);
+            }
+        };
+
+        // If image is already loaded/cached, update aspect ratio immediately
+        if (img.complete && img.naturalWidth > 0) {
+            updateAspectRatio();
+        } else {
+            // Otherwise, wait for it to load
+            img.addEventListener('load', updateAspectRatio);
+        }
+
+        return () => {
+            img.removeEventListener('load', updateAspectRatio);
+        };
+    }, [element.imageUrl]);
+
+
      useLayoutEffect(() => {
-        const selfSize = elementRef.current ? { 
-            width: elementRef.current.getBoundingClientRect().width / zoom,
-            height: elementRef.current.getBoundingClientRect().height / zoom
-        } : null;
+        // Deterministic size calculation, independent of DOM measurement
+        let selfSize: { width: number; height: number; } | null = null;
+        if (imageAspectRatio !== null && parentSize.width > 0) {
+            const pixelWidth = (element.sizePercent.width / 100) * parentSize.width;
+            const pixelHeight = pixelWidth * imageAspectRatio;
+            selfSize = { width: pixelWidth, height: pixelHeight };
+        }
         
         const calculatedStyle = calculateDecorationStyle(element, template, parentSize, selfSize);
         
@@ -55,7 +85,7 @@ export const EditableDecorationElement = ({
             userSelect: 'none',
             pointerEvents: 'auto',
         });
-    }, [element, template, parentSize, zoom, isSelected]);
+    }, [element, template, parentSize, isSelected, imageAspectRatio]);
 
 
     const handleMouseDown = (e: React.MouseEvent, type: 'drag' | 'resize' | 'rotate') => {
@@ -176,6 +206,7 @@ export const EditableDecorationElement = ({
             onMouseDown={(e) => handleMouseDown(e, 'drag')}
         >
             <img 
+                ref={imgRef}
                 src={element.imageUrl} 
                 alt="decoration" 
                 className="w-full h-auto object-contain pointer-events-none" 
