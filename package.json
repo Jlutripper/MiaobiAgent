@@ -1,0 +1,29 @@
+{
+  "name": "ai-creative-assistant",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "npm run generate:schemas && vite",
+    "build": "npm run generate:schemas && vite build",
+    "preview": "vite preview",
+    "generate:schemas": "vite-node scripts/generate-schemas.ts"
+  },
+  "dependencies": {
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "html2canvas": "^1.4.1",
+    "@google/genai": "^1.13.0",
+    "idb": "^8.0.3",
+    "immer": "^10.1.1",
+    "openai": "^4.53.0",
+    "path": "^0.12.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "typescript": "~5.7.2",
+    "vite": "^7.0.5",
+    "ts-morph": "^23.0.0",
+    "vite-node": "^2.0.5"
+  }
+}
