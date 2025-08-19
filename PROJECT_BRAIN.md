@@ -54,23 +54,40 @@
     -   `components/chat/results/ImageResult.tsx`
 -   **优势**: 这种架构使得添加新的结果类型变得极其简单，只需创建一个新的专家组件并在调度器中增加一个 `case` 即可，完全无需修改任何现有组件的逻辑。
 
-### 2.4. 多服务商 AI 架构：统一抽象层
+### 2.4. 多服务商 AI 架构：从抽象层到适配器模式的终极进化
 
-为了实现最终的灵活性和鲁棒性，我们构建了一个**与模型无关 (Model-Agnostic)** 的架构，允许无缝地切换甚至混合使用不同的 AI 服务商（如 Google Gemini, OpenAI）。
+为了实现极致的灵活性、原子化和可扩展性，我们对AI服务层进行了一次决定性的架构重构，从一个简单的**抽象层**进化到了一个真正**可插拔**的**适配器设计模式 (Adapter Pattern)**。
 
--   **`services/aiClient.ts` (AI 配置中心)**:
-    -   **职责**: 这是所有 AI 客户端**初始化**和**模型配置**的唯一入口。
-    -   **实现**: 它负责从环境变量中读取 `GEMINI_API_KEY` 和 `OPENAI_API_KEY`，并创建全局共享的 `GoogleGenAI` 和 `OpenAI` 客户端实例。
-    -   **核心配置 (`AI_MODELS`)**: 我们定义了一个 `AI_MODELS` 对象，它将**任务类型**（如 `ROUTING`, `IMAGE_GENERATION`）映射到一个包含 `{ provider: 'gemini' | 'openai', model: '...' }` 的配置对象。
-    -   **优势**: 开发者现在只需**修改 `aiClient.ts` 中的一行配置**，就可以为任何任务切换 AI 后端，而无需触及任何业务逻辑代码。
+#### 历史问题：条件分支的“坏味道”
 
--   **`services/unifiedAIService.ts` (统一 AI 服务抽象层)**:
-    -   **职责**: 这是整个应用中所有 Agent 服务与 AI 进行交互的**唯一网关**。
-    -   **实现**: 它暴露了一系列**通用的、与服务商无关的接口**，如 `generateJSON`, `generateImage`, `generateText`。
-    -   **调度逻辑**: 在每个函数内部，它会首先从 `aiClient.ts` 读取指定任务的 `provider`。然后，它使用一个 `if/else` 或 `switch` 语句来调用相应服务商的 SDK。所有特定于 SDK 的代码（例如，将通用参数转换为 Gemini 的 `contents` 或 OpenAI 的 `messages` 格式）都**被完全封装并隔离在这个文件内部**。
-    -   **优势**:
-        -   **解耦**: 所有的 Agent 服务（`posterAgentService` 等）现在都只调用 `unifiedAIService` 的通用接口。它们完全不知道也不关心底层使用的是哪个 AI 模型或 SDK。
-        -   **可扩展性**: 未来如果想添加第三个 AI 服务商（如 Anthropic Claude），我们只需要：1) 在 `aiClient.ts` 中添加其客户端初始化；2) 在 `unifiedAIService.ts` 的调度逻辑中为其增加一个 `case`。整个系统的其余部分保持不变。
+最初的 `unifiedAIService.ts` 虽然实现了逻辑上的解耦，但其内部依赖于一个巨大的 `if/else` 逻辑块来区分不同的 `provider` (Gemini, OpenAI)。这种设计存在明显的“代码坏味道”：每当需要支持一个新的AI服务商（例如 Claude），我们就必须修改这个核心文件，增加一个新的 `else if` 分支。这违反了**开闭原则**，随着服务商的增多，文件会变得越来越臃肿，难以维护。
+
+#### 最终方案：适配器模式 (The Adapter Pattern)
+
+新架构将AI服务层彻底重构为一个由多个独立、原子化的“适配器”组成的系统，由一个轻量级的“路由器”进行调度。
+
+-   **`services/adapters/AIAdapter.ts` (设计合同)**:
+    -   **职责**: 定义了一个 TypeScript `interface`，作为所有AI服务商适配器都必须遵守的“通用合同”。它规定了所有适配器都必须实现 `generateJSON`, `generateImage` 等标准方法。
+
+-   **`services/adapters/geminiAdapter.ts` & `openaiAdapter.ts` (专家翻译官)**:
+    -   **职责**: 每个文件都是一个实现了 `AIAdapter` 接口的具体类。它们各自**完全封装**了与特定服务商SDK通信的所有细节。
+    -   **例如**: `geminiAdapter` 知道如何使用 Gemini 的 `responseSchema`；`openaiAdapter` 知道如何使用 `response_format: { type: "json_object" }` 以及如何将我们的 `schema` 翻译成文本指令。
+
+-   **`services/aiClient.ts` (中央控制面板 & 适配器注册表)**:
+    -   **职责**: 其角色被提升了。它不仅是**模型配置中心**（通过 `AI_MODELS` 对象），现在还是**适配器注册表**。它负责实例化所有可用的适配器 (`new GeminiAdapter()`, `new OpenAIAdapter()`) 并将它们存储在一个全局可访问的映射中。
+
+-   **`services/unifiedAIService.ts` (轻量级路由器)**:
+    -   **职责**: 这个文件被极大地简化了。它现在是一个**纯粹的路由器**，不再包含任何 `if/else` 服务商逻辑。
+    -   **工作流程**: 当一个Agent调用它时，它会：
+        1.  根据任务类型，从 `aiClient.ts` 的 `AI_MODELS` 中查找 `provider`。
+        2.  使用 `provider` 名称，从 `aiClient.ts` 的适配器注册表中获取对应的**适配器实例**。
+        3.  调用该适配器的相应方法，将任务完全委托出去。
+
+#### 新架构的巨大优势
+
+-   **真正的可插拔性**: 要支持一个新的AI服务商（如 Claude），我们现在**只需**在 `adapters` 目录下创建一个新的 `claudeAdapter.ts` 文件，实现 `AIAdapter` 接口，然后在 `aiClient.ts` 中注册它即可。**`unifiedAIService.ts` 的核心逻辑再也无需被修改**。
+-   **高内聚，低耦合**: 所有与Gemini相关的代码都只存在于`geminiAdapter.ts`中，所有与OpenAI相关的代码都只存在于`openaiAdapter.ts`中。这使得代码库极其清晰、原子化，并且易于维护和独立测试。
+-   **极致的灵活性**: 开发者现在可以通过修改**唯一的配置文件** `aiClient.ts` 来为任何任务精确地指派任何已注册的AI服务商，实现了前所未有的控制力。
 
 ---
 
