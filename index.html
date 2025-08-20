@@ -4,25 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AI Creative Assistant</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
+  <!-- 使用本地字体文件 -->
+  <link rel="stylesheet" href="/assets/fonts/fonts.css">
   
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ['"Noto Sans SC"', 'sans-serif'],
-            cursive: ['"ZCOOL KuaiLe"', 'cursive'],
-          }
-        }
-      }
-    }
-  </script>
-
-  <link rel="stylesheet" href="/index.css">
+  <!-- 使用构建好的Tailwind CSS -->
+  <link rel="stylesheet" href="/assets/css/main.css">
 </head>
 <body class="bg-gray-900 font-sans">
   <div id="root"></div>

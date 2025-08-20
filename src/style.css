@@ -1,0 +1,6 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 导入本地index.css的样式 */
+@import '../index.css';

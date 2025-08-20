@@ -1,0 +1,77 @@
+/* 
+  自定义样式
+  包含原index.css中的所有样式
+*/
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+.animate-pop-in {
+    animation: pop-in 0.5s cubic-bezier(0.250, 0.460, 0.450, 0.940) both;
+}
+
+.animate-pulse-bright {
+  animation: pulse-bright 2.5s infinite ease-in-out;
+}
+
+@keyframes pop-in {
+  0% {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes pulse-bright {
+  0%, 100% {
+    color: #9ca3af; /* gray-400 */
+    transform: scale(1);
+  }
+  50% {
+    color: #c4b5fd; /* violet-300 */
+    transform: scale(1.1);
+  }
+}
+
+/* Bouncing dots animation for thinking state */
+.thinking-dots-loader {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  height: 24px;
+}
+
+.thinking-dots-loader > div {
+  width: 8px;
+  height: 8px;
+  background-color: white;
+  border-radius: 100%;
+  animation: ai-assistant-bouncedelay 1.4s infinite ease-in-out both;
+}
+
+.thinking-dots-loader > div:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.thinking-dots-loader > div:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+.thinking-dots-loader > div:nth-child(3) {
+  animation-delay: 0s;
+}
+
+@keyframes ai-assistant-bouncedelay {
+  0%, 80%, 100% {
+    transform: scale(0);
+  } 40% {
+    transform: scale(1.0);
+  }
+}

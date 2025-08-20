@@ -37,10 +37,12 @@ AI 创意助手是一款先进的、对话式的 Web 应用程序，旨在帮助
 
 -   **框架**: React 19
 -   **语言**: TypeScript
--   **样式**: Tailwind CSS
+-   **样式**: Tailwind CSS（本地化构建配置）
 -   **本地存储**: `idb` 库 (IndexedDB 的封装)
 -   **AI SDK**: `openai`
--   **构建/导入**: `importmap`
+-   **构建工具**: Vite
+-   **CSS 处理**: PostCSS + Autoprefixer
+-   **字体**: 本地托管的 Noto Sans SC 和 ZCOOL KuaiLe
 
 ### 3.2. 核心原则与设计模式
 
@@ -57,18 +59,37 @@ AI 创意助手是一款先进的、对话式的 Web 应用程序，旨在帮助
 
 ```
 /
-├── components/
-├── hooks/
-├── services/
-├── scripts/                    # 新增: 构建脚本, 如 schema 生成器
-├── App.tsx                     # 主应用组件, 状态管理和 Agent 编排
-├── constants.ts                # 应用范围的常量
-├── index.html                  # 主 HTML 入口点
-├── index.tsx                   # React 根渲染器
-├── readme.md                   # 本文件 (高级概述)
-├── PROJECT_BRAIN.md            # 项目大脑 (深度技术细节)
-└── types.ts                    # 集中式 TypeScript 类型定义
+├── components/          # React 组件
+├── hooks/               # 自定义 React Hooks
+├── services/            # 业务逻辑和 AI 服务
+│   └── adapters/        # AI 服务适配器
+├── scripts/             # 构建脚本, 如 schema 生成器
+├── src/                 # 源代码目录
+│   └── styles/          # CSS 样式文件
+│       ├── main.css     # Tailwind 入口样式
+│       └── custom.css   # 自定义样式
+├── public/              # 静态资源
+│   └── assets/          # 资源文件
+│       ├── css/         # 编译后的 CSS
+│       └── fonts/       # 本地字体文件
+├── App.tsx              # 主应用组件, 状态管理和 Agent 编排
+├── constants.ts         # 应用范围的常量
+├── index.html           # 主 HTML 入口点
+├── index.tsx            # React 根渲染器
+├── readme.md            # 本文件 (高级概述)
+├── PROJECT_BRAIN.md     # 项目大脑 (深度技术细节)
+└── types.ts             # 集中式 TypeScript 类型定义
 ```
+
+### 3.4. 部署与环境支持
+
+项目已进行特殊优化，以支持在不同环境中灵活部署：
+
+- **外网环境**: 默认配置支持通过标准互联网连接访问所有资源。
+- **内网环境**: 经过特殊改造，可在无外部网络连接的受限环境中完全运行：
+  - **本地化字体资源**: 所有字体文件已本地化，无需访问 Google Fonts。
+  - **本地化样式处理**: Tailwind CSS 已配置为本地构建流程，不依赖 CDN。
+  - **优化资源目录结构**: 采用标准化的资源组织方式，便于维护和扩展。
 
 ## 4. 如何扩展应用
 
