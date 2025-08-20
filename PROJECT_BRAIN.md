@@ -12,7 +12,7 @@
 
 ### 1.2. 架构演进：从“上帝对象”到“专家 Agent 工作流”
 
-项目初期，所有 AI 逻辑都集中在一个单一的 `geminiService.ts` 文件中。这很快被证明是不可持续的，因为它违反了**单一职责原则**，导致了高耦合、低可测试性和差的可扩展性。
+项目初期，所有 AI 逻辑都集中在一个单一的服务文件中。这很快被证明是不可持续的，因为它违反了**单一职责原则**，导致了高耦合、低可测试性和差的可扩展性。
 
 我们果断地进行了重构，采用了**“专家 Agent 工作流 (Specialist Agent Workflow)”**的核心架构理念。
 
@@ -33,7 +33,7 @@
 -   **语言**: TypeScript (强制严格类型检查)
 -   **样式**: Tailwind CSS (用于快速的、实用程序优先的 UI 开发)
 -   **本地存储**: `idb` (IndexedDB 的一个轻量级封装，用于持久化用户数据)
--   **AI SDK**: `@google/genai`, `openai`
+-   **AI SDK**: `openai`
 -   **构建/导入**: 通过 `index.html` 中的 `importmap` 直接从 CDN (`esm.sh`) 导入依赖，简化了本地开发环境。
 
 ### 2.2. 数据持久化
@@ -60,7 +60,7 @@
 
 #### 历史问题：条件分支的“坏味道”
 
-最初的 `unifiedAIService.ts` 虽然实现了逻辑上的解耦，但其内部依赖于一个巨大的 `if/else` 逻辑块来区分不同的 `provider` (Gemini, OpenAI)。这种设计存在明显的“代码坏味道”：每当需要支持一个新的AI服务商（例如 Claude），我们就必须修改这个核心文件，增加一个新的 `else if` 分支。这违反了**开闭原则**，随着服务商的增多，文件会变得越来越臃肿，难以维护。
+最初的 `unifiedAIService.ts` 虽然实现了逻辑上的解耦，但其内部依赖于一个巨大的 `if/else` 逻辑块来区分不同的 `provider`。这种设计存在明显的“代码坏味道”：每当需要支持一个新的AI服务商（例如 Claude），我们就必须修改这个核心文件，增加一个新的 `else if` 分支。这违反了**开闭原则**，随着服务商的增多，文件会变得越来越臃肿，难以维护。
 
 #### 最终方案：适配器模式 (The Adapter Pattern)
 
@@ -69,9 +69,9 @@
 -   **`services/adapters/AIAdapter.ts` (设计合同)**:
     -   **职责**: 定义了一个 TypeScript `interface`，作为所有AI服务商适配器都必须遵守的“通用合同”。它规定了所有适配器都必须实现 `generateJSON`, `generateImage` 等标准方法。
 
--   **`services/adapters/geminiAdapter.ts` & `openaiAdapter.ts` (专家翻译官)**:
+-   **`services/adapters/openaiAdapter.ts` (专家翻译官)**:
     -   **职责**: 每个文件都是一个实现了 `AIAdapter` 接口的具体类。它们各自**完全封装**了与特定服务商SDK通信的所有细节。
-    -   **例如**: `geminiAdapter` 知道如何使用 Gemini 的 `responseSchema`；`openaiAdapter` 知道如何使用 `response_format: { type: "json_object" }` 以及如何将我们的 `schema` 翻译成文本指令。
+    -   **例如**: `openaiAdapter` 知道如何使用 `response_format: { type: "json_object" }` 以及如何将我们的 `schema` 翻译成文本指令。
 
 -   **`services/aiClient.ts` (中央控制面板 & 适配器注册表)**:
     -   **职责**: 其角色被提升了。它不仅是**模型配置中心**（通过 `AI_MODELS` 对象），现在还是**适配器注册表**。它负责实例化所有可用的适配器 (`new GeminiAdapter()`, `new OpenAIAdapter()`) 并将它们存储在一个全局可访问的映射中。
@@ -86,7 +86,7 @@
 #### 新架构的巨大优势
 
 -   **真正的可插拔性**: 要支持一个新的AI服务商（如 Claude），我们现在**只需**在 `adapters` 目录下创建一个新的 `claudeAdapter.ts` 文件，实现 `AIAdapter` 接口，然后在 `aiClient.ts` 中注册它即可。**`unifiedAIService.ts` 的核心逻辑再也无需被修改**。
--   **高内聚，低耦合**: 所有与Gemini相关的代码都只存在于`geminiAdapter.ts`中，所有与OpenAI相关的代码都只存在于`openaiAdapter.ts`中。这使得代码库极其清晰、原子化，并且易于维护和独立测试。
+-   **高内聚，低耦合**: 与OpenAI相关的代码只存在于`openaiAdapter.ts`中。这使得代码库极其清晰、原子化，并且易于维护和独立测试。
 -   **极致的灵活性**: 开发者现在可以通过修改**唯一的配置文件** `aiClient.ts` 来为任何任务精确地指派任何已注册的AI服务商，实现了前所未有的控制力。
 
 ---
@@ -308,7 +308,7 @@
     -   **核心理念**: 我们建立了一个架构级保障，确立了 **`types.ts` 作为定义 AI 数据契约的唯一真相来源 (Single Source of Truth)**。
     -   **实现 (`scripts/generate-schemas.ts`)**:
         1.  **自动解析**: 我们创建了一个构建脚本，使用 `ts-morph` 库来程序化地读取和解析 `types.ts` 文件的抽象语法树 (AST)。
-        2.  **自动编译**: 该脚本能够将指定的 TypeScript 接口（如 `LayoutBox`, `TextSection`）**自动编译**成 Google Gemini API 所需的、完全兼容的 JSON Schema 格式。
+    2.  **自动编译**: 该脚本能够将指定的 TypeScript 接口（如 `LayoutBox`, `TextSection`）**自动编译**成我们内部通用的 JSON Schema（轻量格式）。
         3.  **无缝集成**: 这个脚本被集成到了 `dev` 和 `build` 命令中。这意味着，**每一次启动或构建项目时，Schema 都会被自动重新生成**并输出到 `services/generatedSchemas.ts`。
         4.  **架构重构**: 所有的 Agent 服务（如 `posterAgentService.ts`）都被重构，不再包含任何手写的、巨大的 Schema 对象。取而代之的是，它们直接 `import` 并使用这些**永远保持最新**的、自动生成的 Schema。
     -   **最终收益**: 这个架构升级从根本上消除了“功能-提示词漂移”的问题。开发者现在可以放心地在 `types.ts` 中修改数据结构，构建系统会自动保证所有 AI Agent 的“知识”同步更新，确保了系统的长期健壮性和可维护性。

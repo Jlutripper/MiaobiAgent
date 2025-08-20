@@ -1,4 +1,4 @@
-import { Type as GeminiType } from "@google/genai";
+import { SchemaType } from './aiSchemaTypes';
 import { ResultData, LongArticleTemplate, TextSection, ImageSection } from '../types';
 import { FONT_FAMILIES } from '../constants';
 import { unifiedAIService } from './unifiedAIService';
@@ -59,9 +59,9 @@ export const generateLongArticleLayout = async (
 
         if (textRoles.length > 0) {
             contentSchemaProperties.textContent = {
-                type: GeminiType.OBJECT,
+                type: SchemaType.OBJECT,
                 description: "A mapping of role names to their corresponding text content.",
-                properties: textRoles.reduce((acc, role) => ({ ...acc, [role]: { type: GeminiType.STRING, description: `Content for the '${role}' text block.` } }), {}),
+                properties: textRoles.reduce((acc, role) => ({ ...acc, [role]: { type: SchemaType.STRING, description: `Content for the '${role}' text block.` } }), {}),
                 required: textRoles
             };
             requiredFields.push('textContent');
@@ -69,9 +69,9 @@ export const generateLongArticleLayout = async (
 
         if (imageRoles.length > 0 && generateIllustrations) {
             contentSchemaProperties.imagePrompts = {
-                type: GeminiType.OBJECT,
+                type: SchemaType.OBJECT,
                 description: "A mapping of image role names to their English generation prompts.",
-                properties: imageRoles.reduce((acc, role) => ({ ...acc, [role]: { type: GeminiType.STRING, description: `Image prompt for the '${role}' image block.` } }), {}),
+                properties: imageRoles.reduce((acc, role) => ({ ...acc, [role]: { type: SchemaType.STRING, description: `Image prompt for the '${role}' image block.` } }), {}),
                 required: imageRoles,
             };
         }
@@ -82,7 +82,7 @@ export const generateLongArticleLayout = async (
         }
 
         const contentSchema = {
-            type: GeminiType.OBJECT,
+            type: SchemaType.OBJECT,
             properties: contentSchemaProperties,
             required: requiredFields,
         };
@@ -153,11 +153,11 @@ Target Structure:
         }
     } else {
         const layoutSchema = {
-            type: GeminiType.OBJECT,
+            type: SchemaType.OBJECT,
             properties: {
-                title: { type: GeminiType.STRING },
-                body: { type: GeminiType.ARRAY, items: { type: GeminiType.STRING } },
-                backgroundPrompt: { type: GeminiType.STRING }
+                title: { type: SchemaType.STRING },
+                body: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+                backgroundPrompt: { type: SchemaType.STRING }
             },
             required: ['title', 'body', 'backgroundPrompt']
         };

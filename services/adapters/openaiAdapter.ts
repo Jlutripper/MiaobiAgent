@@ -5,7 +5,7 @@ import { openai } from '../aiClient';
 import { AIAdapter, GenerateJSONParams, GenerateTextParams, GenerateImageParams } from './AIAdapter';
 import { SchemaType } from '../aiSchemaTypes';
 
-// Helper function to convert a Gemini-style schema object into a text description for OpenAI
+// Helper: convert our simple schema object into a text description for OpenAI
 const schemaToText = (schema: any, indent = ''): string => {
     if (!schema || !schema.properties) return '';
     let text = '{\n';
@@ -115,7 +115,7 @@ export class OpenAIAdapter implements AIAdapter {
         size: "1024x1024", // DALL-E 3 default size
         response_format: 'b64_json',
     });
-    const b64_json = response.data[0].b64_json;
+    const b64_json = response.data?.[0]?.b64_json;
     if (!b64_json) throw new Error("OpenAI did not return a base64 image.");
     return `data:image/png;base64,${b64_json}`;
   }

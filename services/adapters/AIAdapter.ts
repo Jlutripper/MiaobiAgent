@@ -4,7 +4,7 @@
  * AI Adapter Interface (设计合同)
  * 
  * 这个接口定义了所有AI服务商适配器必须遵守的通用方法。
- * 它确保了无论底层是Gemini, OpenAI, 还是未来的Claude，
+ * 它确保了无论底层是哪家模型服务商，
  * 我们的上层服务都能用同样的方式与它们对话。
  */
 
@@ -14,7 +14,7 @@ export interface GenerateJSONParams {
   task: string;
   prompt: string;
   systemInstruction?: string;
-  schema?: any; // Gemini-specific schema
+  schema?: any; // Optional JSON schema in our internal format
 }
 
 export interface GenerateTextParams {

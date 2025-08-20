@@ -1,7 +1,7 @@
 import { SchemaType } from './aiSchemaTypes';
-import { AspectRatio, ResultData, PosterTemplate, LayoutBox, ArticleSection, TextSection, ImageSection, DecorationElement } from '../types';
+import { AspectRatio, ResultData, PosterTemplate, LayoutBox, ArticleSection, ImageSection } from '../types';
 import { unifiedAIService } from './unifiedAIService';
-import { layoutBoxSchema, textSectionSchema, imageSectionSchema, textSpanSchema } from './generatedSchemas';
+import { layoutBoxSchema, textSpanSchema } from './generatedSchemas';
 
 const generateDynamicTemplate = async (
     theme: string,
@@ -200,37 +200,37 @@ export const generatePosterLayout = async (
     allTemplates: PosterTemplate[]
 ): Promise<Omit<ResultData & { type: 'poster' }, 'type' | 'prompt'>> => {
 
-    let template: PosterTemplate | null = templateId && templateId !== 'none' ? allTemplates.find(t => t.id === templateId) : null;
+    const found = templateId && templateId !== 'none' ? allTemplates.find(t => t.id === templateId) : null;
     
     const [w, h] = aspectRatio.split(':').map(Number);
     const targetWidth = 1080;
     const targetHeight = Math.round(targetWidth * h / w);
     const targetDimensions = { width: targetWidth, height: targetHeight };
 
-    if (template) {
-        const originalWidth = template.width;
-        template = JSON.parse(JSON.stringify(template)); // Deep copy
-        template.width = targetDimensions.width;
-        template.height = targetDimensions.height;
-
+    let selectedTemplate: PosterTemplate;
+    if (found) {
+        const originalWidth = found.width;
+        const cloned = JSON.parse(JSON.stringify(found)) as PosterTemplate; // Deep copy
+        cloned.width = targetDimensions.width;
+        cloned.height = targetDimensions.height;
         if (originalWidth > 0 && Math.abs(originalWidth - targetDimensions.width) > 1) {
             const scaleFactor = targetDimensions.width / originalWidth;
-            scaleTemplateElements(template, scaleFactor);
+            scaleTemplateElements(cloned, scaleFactor);
         }
-
+        selectedTemplate = cloned;
     } else {
-        template = await generateDynamicTemplate(theme, targetDimensions);
+        selectedTemplate = await generateDynamicTemplate(theme, targetDimensions);
     }
     
     type PosterData = Extract<ResultData, {type: 'poster'}>;
 
     let resultData: Omit<PosterData, 'type' | 'prompt'> = JSON.parse(JSON.stringify({ // Deep copy
-        templateId: template.id,
-        width: template.width,
-        height: template.height,
-        background: { ...template.background },
-        layoutBoxes: template.layoutBoxes,
-        decorations: template.decorations,
+        templateId: selectedTemplate.id,
+        width: selectedTemplate.width,
+        height: selectedTemplate.height,
+        background: { ...selectedTemplate.background },
+        layoutBoxes: selectedTemplate.layoutBoxes,
+        decorations: selectedTemplate.decorations,
     }));
     
     if (resultData.background.type === 'image' && !resultData.background.value.startsWith('data:')) {
@@ -296,7 +296,7 @@ export const generatePosterLayout = async (
         required: ['composition']
     };
 
-    const templateStructureString = template.layoutBoxes.map(box => {
+    const templateStructureString = selectedTemplate.layoutBoxes.map(box => {
         const sectionsDescription = (box.sections && box.sections.length > 0)
             ? (box.sections || []).map(s => {
                 const locked = s.isContentLocked ? ' (LOCKED)' : '';
@@ -314,7 +314,7 @@ export const generatePosterLayout = async (
 
 **The Blueprint (Layout Structure):**
 This is the layout you MUST work within. Do NOT alter it.
-- Canvas Size: ${template.width}px wide by ${template.height}px tall.
+- Canvas Size: ${selectedTemplate.width}px wide by ${selectedTemplate.height}px tall.
 ${templateStructureString}
 
 **CRITICAL INSTRUCTIONS & WORKFLOW:**
@@ -354,46 +354,58 @@ ${templateStructureString}
     const aiComposition = designPlan.composition || [];
 
     for (const plannedBox of aiComposition) {
-        const originalBox = template.layoutBoxes.find(b => b.role === plannedBox.boxRole);
+    const originalBox = selectedTemplate.layoutBoxes.find(b => b.role === plannedBox.boxRole);
         if (!originalBox) continue;
 
         const newBox: LayoutBox = { ...JSON.parse(JSON.stringify(originalBox)) };
 
         const composedSections: ArticleSection[] = [];
-        for (const plannedSection of plannedBox.sections) {
-            let originalSection = originalBox.sections.find(s => s.role === plannedSection.sectionRole);
-            const isNewSection = !originalSection;
+    for (const plannedSection of plannedBox.sections) {
+            const existing = originalBox.sections.find(s => s.role === plannedSection.sectionRole);
+            const isNewSection = !existing;
 
+            let baseSection: ArticleSection;
             if (isNewSection) { 
-                const isText = !!plannedSection.content?.content;
+                const isText = !!plannedSection.content?.content || typeof plannedSection.content === 'string' || Array.isArray(plannedSection.content);
                 if (isText) {
-                     originalSection = {
+                     baseSection = {
                         id: `section-${Date.now()}-${Math.random()}`, type: 'text', role: plannedSection.sectionRole,
                         content: [],
                         style: { fontFamily: "'Noto Sans SC', sans-serif", fontSize: 32, fontWeight: 700, color: '#FFFFFF', textAlign: 'center', lineHeight: 1.5, ...plannedSection.content?.style }
                     };
                 } else { // Is Image
-                     originalSection = {
+                     baseSection = {
                         id: `section-${Date.now()}-${Math.random()}`, type: 'image', role: plannedSection.sectionRole, imageUrl: '', prompt: ''
                     } as ImageSection;
                 }
+            } else {
+                baseSection = existing!;
             }
 
-            const newSection: ArticleSection = { ...JSON.parse(JSON.stringify(originalSection)) };
+            const newSection: ArticleSection = { ...JSON.parse(JSON.stringify(baseSection)) };
             
-            if (originalSection.isContentLocked || !plannedSection.content) {
+            // 规范化 plannedSection.content：
+            // 允许 AI 返回 content 为字符串或为直接的 TextSpan[]
+            let normalizedContent: any = plannedSection.content;
+            if (typeof normalizedContent === 'string') {
+                normalizedContent = { content: [{ text: normalizedContent, style: {} }] };
+            } else if (Array.isArray(normalizedContent)) {
+                normalizedContent = { content: normalizedContent };
+            }
+
+            if (baseSection.isContentLocked || !normalizedContent) {
                 composedSections.push(newSection);
                 continue;
             }
 
-            if (newSection.type === 'text' && plannedSection.content?.content) {
-                newSection.content = plannedSection.content.content;
-            } else if (newSection.type === 'image' && plannedSection.content?.prompt) {
-                newSection.prompt = plannedSection.content.prompt;
+            if (newSection.type === 'text' && normalizedContent?.content) {
+                newSection.content = normalizedContent.content;
+            } else if (newSection.type === 'image' && normalizedContent?.prompt) {
+                newSection.prompt = normalizedContent.prompt;
             }
             
-            if (!isNewSection && newSection.type === 'text' && originalSection.type === 'text') {
-                newSection.style = JSON.parse(JSON.stringify(originalSection.style));
+            if (!isNewSection && newSection.type === 'text' && baseSection.type === 'text') {
+                newSection.style = JSON.parse(JSON.stringify(baseSection.style));
             }
 
             if (newBox.layoutMode === 'flex' && plannedSection.flexGrow !== undefined) {
