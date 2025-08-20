@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { produce } from 'https://esm.sh/immer@10.1.1';
+import { produce } from 'immer';
 import { PosterTemplate, LayoutBox, ArticleSection, DecorationElement } from '../types';
 import { AddTextIcon, PhotoIcon, LayoutIcon, SparklesIcon, TrashIcon, EyeIcon, EyeSlashIcon, LockClosedIcon, LockOpenIcon, ChevronDownIcon, ChevronRightIcon, DuplicateIcon } from './icons';
 

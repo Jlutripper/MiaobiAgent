@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useLayoutEffect, useMemo, useEffect } from 'react';
-import { produce } from 'https://esm.sh/immer@10.1.1';
+import { produce } from 'immer';
 import { PosterTemplate, LayoutBox, ArticleSection, TextSection, ImageSection, TextStyleDefinition, DecorationElement, TextSpan, TextSpanStyle } from '../types';
 import { EditableDecorationElement } from './EditableDecorationElement';
 import { XMarkIcon, MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon, SpinnerIcon, ArrowUpTrayIcon, LayoutIcon, SparklesIcon } from './icons';

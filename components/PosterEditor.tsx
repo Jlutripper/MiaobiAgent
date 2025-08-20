@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useLayoutEffect, useMemo, useEffect } from 'react';
 import html2canvas from 'html2canvas';
-import { produce } from 'https://esm.sh/immer@10.1.1';
+import { produce } from 'immer';
 import { ResultData, ArticleSection, LayoutBox, PosterTemplate, DecorationElement, TextSpanStyle } from '../types';
 import { DownloadIcon, XMarkIcon, SpinnerIcon, MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon } from './icons';
 import { PosterContent } from './PosterTemplateEditor';

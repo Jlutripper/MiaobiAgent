@@ -1,5 +1,5 @@
 import React, { useState, useRef, useMemo } from 'react';
-import { produce } from 'https://esm.sh/immer@10.1.1';
+import { produce } from 'immer';
 import { PosterTemplate, LayoutBox, ArticleSection, TextSection, ImageSection, DecorationElement, TextStyleDefinition, TextSpan, TextSpanStyle } from '../types';
 import { FONT_FAMILIES, TEMPLATE_TEXT_ROLES } from '../constants';
 import { SpinnerIcon, ArrowUpTrayIcon, TrashIcon, QuestionMarkCircleIcon, LockClosedIcon, LockOpenIcon, PaintBrushIcon, HighlighterIcon, EyeIcon, EyeSlashIcon, AlignTextCenter, AlignTextLeft, AlignTextRight, AlignTextJustifyIcon, PlusIcon, PhotoIcon, AnchorTopLeftIcon, AnchorTopCenterIcon, AnchorTopRightIcon, AnchorCenterLeftIcon, AnchorCenterIcon, AnchorCenterRightIcon, AnchorBottomLeftIcon, AnchorBottomCenterIcon, AnchorBottomRightIcon } from './icons';

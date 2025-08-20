@@ -1,5 +1,5 @@
 import React, { useRef, useCallback } from 'react';
-import { produce } from 'https://esm.sh/immer@10.1.1';
+import { produce } from 'immer';
 import { LayoutBox, DecorationElement, Guide, ArticleSection, TextSection, ImageSection, PosterTemplate, TextSpan } from '../types';
 import { EditableTextSection } from './EditableTextSection';
 import { EditableImageSection } from './EditableImageSection';
