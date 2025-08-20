@@ -121,10 +121,10 @@ export const layoutBoxSchema = {
           "type": "OBJECT",
           "properties": {
             "x": {
-              "type": "NUMBER"
+              "type": "STRING"
             },
             "y": {
-              "type": "NUMBER"
+              "type": "STRING"
             }
           },
           "required": [

@@ -31,9 +31,18 @@ export interface GenerateImageParams {
   aspectRatio?: string;
 }
 
+// --- MCP服务参数类型定义 ---
+export interface MCPServiceParams {
+  task: string;
+  method: string;
+  data: any;
+  options?: Record<string, any>;
+}
 
 export interface AIAdapter {
   generateJSON(params: GenerateJSONParams): Promise<string>;
   generateText(params: GenerateTextParams): Promise<string>;
   generateImage(params: GenerateImageParams): Promise<string>;
+  // MCP服务调用（可选实现）
+  callMCPService?(params: MCPServiceParams): Promise<string>;
 }

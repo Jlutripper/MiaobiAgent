@@ -126,17 +126,17 @@ const getSelectionIndices = (element: HTMLElement): { start: number, end: number
     return { start: Math.min(startOffset, endOffset), end: Math.max(startOffset, endOffset) };
 };
 
-// --- NEW: HTML-based Renderer for Display Mode ---
+// --- HTML Renderer for normal text ---
 const HtmlTextRenderer = ({ section }: { section: TextSection }) => {
     const { style, content = [] } = section;
+    const rotation = section.rotation || 0;
 
     const wrapperStyle: React.CSSProperties = {
+        fontSize: `${style.fontSize}px`,
         fontFamily: style.fontFamily,
-        fontSize: style.fontSize,
         fontWeight: style.fontWeight,
-        color: style.color,
-        textAlign: style.textAlign,
         lineHeight: style.lineHeight,
+        textAlign: style.textAlign,
         letterSpacing: style.letterSpacing ? `${style.letterSpacing}px` : undefined,
         writingMode: style.writingMode,
         textShadow: style.textShadow,
@@ -145,8 +145,10 @@ const HtmlTextRenderer = ({ section }: { section: TextSection }) => {
         width: '100%',
         height: '100%',
         pointerEvents: 'none',
-        transform: `rotate(${section.rotation || 0}deg)`,
+        transform: `rotate(${rotation}deg)`,
         transformOrigin: 'center center',
+        // 垂直文本时限制最大宽度，防止过高
+        maxWidth: style.writingMode === 'vertical-rl' ? '200px' : undefined,
     };
 
     if (isGradient(style.color)) {
@@ -198,7 +200,8 @@ const HtmlTextRenderer = ({ section }: { section: TextSection }) => {
 // --- SVG Renderer for the 'curve' effect ---
 const SvgCurvedTextRenderer = ({ section }: { section: TextSection }) => {
     const { style, content = [] } = section;
-    const { curve = 0, fontSize = 24 } = style;
+    const { curve = 0 } = style;
+    const rotation = section.rotation || 0;
     
     const containerRef = useRef<HTMLDivElement>(null);
     const textRef = useRef<SVGTextElement>(null);
@@ -219,6 +222,8 @@ const SvgCurvedTextRenderer = ({ section }: { section: TextSection }) => {
     }, [content, style, curve]); // Rerun whenever text or style changes
 
     const uniqueId = `path-${section.id}`;
+    const gradientId = `gradient-${section.id}`;
+    const filterId = `filter-${section.id}`;
 
     const pathData = useMemo(() => {
         const curveValue = curve / 100;
@@ -236,14 +241,100 @@ const SvgCurvedTextRenderer = ({ section }: { section: TextSection }) => {
 
     const textAnchor = style.textAlign === 'center' ? 'middle' : style.textAlign === 'right' ? 'end' : 'start';
 
+    // Parse text stroke if exists
+    const textStroke = style.textStroke ? (() => {
+        const parts = style.textStroke.split(' ');
+        const width = parseFloat(parts[0]) || 0;
+        const color = parts.slice(1).join(' ') || '#000000';
+        return { width, color };
+    })() : null;
+
+    // Prepare color and gradient definitions
+    const isTextGradient = style.color && isGradient(style.color);
+    const parsedGradient = isTextGradient ? parseGradientString(style.color!) : null;
+
+    // Prepare shadow filter if exists
+    const textShadow = style.textShadow ? (() => {
+        const shadowStr = style.textShadow;
+        const match = shadowStr.match(/(-?\d+(?:\.\d+)?)px\s+(-?\d+(?:\.\d+)?)px\s+(\d+(?:\.\d+)?)px\s+(rgba?\([^)]+\)|#[a-fA-F0-9]+|[a-zA-Z]+)/);
+        if (match) {
+            return {
+                offsetX: parseFloat(match[1]),
+                offsetY: parseFloat(match[2]),
+                blur: parseFloat(match[3]),
+                color: match[4]
+            };
+        }
+        return null;
+    })() : null;
+
     return (
-        <div ref={containerRef} className="w-full pointer-events-none" style={{ transform: `rotate(${section.rotation || 0}deg)`, transformOrigin: 'center center' }}>
+        <div ref={containerRef} 
+             className="w-full pointer-events-none" 
+             style={{ 
+                transform: `rotate(${rotation}deg)`, 
+                transformOrigin: 'center center',
+                width: '100%',
+                height: '100%'
+             }}>
              <svg width="100%" height="100%" overflow="visible" viewBox={viewBox} preserveAspectRatio="xMidYMid meet">
                 <defs>
                     <path id={uniqueId} d={pathData}></path>
+                    
+                    {/* Gradient definition for text fill */}
+                    {parsedGradient && (
+                        <>
+                            {parsedGradient.type === 'linear' && (
+                                <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="0%" gradientTransform={`rotate(${parsedGradient.angle} 0.5 0.5)`}>
+                                    {parsedGradient.stops.map((stop, index) => (
+                                        <stop key={index} offset={`${stop.position * 100}%`} stopColor={stop.color} />
+                                    ))}
+                                </linearGradient>
+                            )}
+                            {parsedGradient.type === 'radial' && (
+                                <radialGradient id={gradientId} cx={`${parsedGradient.position.x}%`} cy={`${parsedGradient.position.y}%`}>
+                                    {parsedGradient.stops.map((stop, index) => (
+                                        <stop key={index} offset={`${stop.position * 100}%`} stopColor={stop.color} />
+                                    ))}
+                                </radialGradient>
+                            )}
+                            {parsedGradient.type === 'conic' && (
+                                <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="0%" gradientTransform={`rotate(${parsedGradient.angle} 0.5 0.5)`}>
+                                    {parsedGradient.stops.map((stop, index) => (
+                                        <stop key={index} offset={`${stop.position * 100}%`} stopColor={stop.color} />
+                                    ))}
+                                </linearGradient>
+                            )}
+                        </>
+                    )}
+
+                    {/* Filter for text shadow */}
+                    {textShadow && (
+                        <filter id={filterId} x="-50%" y="-50%" width="200%" height="200%">
+                            <feDropShadow 
+                                dx={textShadow.offsetX} 
+                                dy={textShadow.offsetY} 
+                                stdDeviation={textShadow.blur / 2} 
+                                floodColor={textShadow.color} 
+                            />
+                        </filter>
+                    )}
                 </defs>
-                <text ref={textRef} style={{ fontFamily: style.fontFamily, fontSize: style.fontSize, fontWeight: style.fontWeight, letterSpacing: style.letterSpacing, textShadow: style.textShadow }}>
-                    <textPath href={`#${uniqueId}`} startOffset="50%" textAnchor={textAnchor} fill={style.color}>
+
+                <text 
+                    ref={textRef} 
+                    style={{ 
+                        fontFamily: style.fontFamily, 
+                        fontSize: style.fontSize, 
+                        fontWeight: style.fontWeight, 
+                        letterSpacing: style.letterSpacing 
+                    }}
+                    fill={isTextGradient ? `url(#${gradientId})` : style.color}
+                    stroke={textStroke ? textStroke.color : 'none'}
+                    strokeWidth={textStroke ? textStroke.width : 0}
+                    filter={textShadow ? `url(#${filterId})` : undefined}
+                >
+                    <textPath href={`#${uniqueId}`} startOffset="50%" textAnchor={textAnchor}>
                          {content.map(s => s.text).join('')}
                     </textPath>
                 </text>
@@ -269,6 +360,28 @@ export const EditableTextSection = (props: EditableTextSectionProps) => {
     const { style, content } = section;
     
     const contentRef = useRef<HTMLDivElement>(null);
+
+    // 所有 hooks 必须在任何条件返回之前调用
+    const hasCurve = style.curve && style.curve !== 0;
+
+    const handleBlur = useCallback(async () => {
+        if (contentRef.current) {
+            try {
+                const newSpans = htmlToSpans(contentRef.current);
+                // 确保内容更新完成后再退出编辑模式
+                await Promise.resolve(onUpdateContent(newSpans));
+                // 延迟退出编辑模式，确保保存操作完成
+                setTimeout(() => {
+                    onExitEditMode();
+                }, 0);
+            } catch (error) {
+                console.error('Failed to update text content:', error);
+                onExitEditMode();
+            }
+        } else {
+            onExitEditMode();
+        }
+    }, [onUpdateContent, onExitEditMode]);
 
     useEffect(() => {
         if (isEditing && contentRef.current) {
@@ -299,14 +412,7 @@ export const EditableTextSection = (props: EditableTextSectionProps) => {
         return () => document.removeEventListener('selectionchange', handleSelectionChange);
     }, [isEditing, onSelectionChange]);
 
-    const handleBlur = useCallback(() => {
-        if (contentRef.current) {
-            const newSpans = htmlToSpans(contentRef.current);
-            onUpdateContent(newSpans);
-        }
-        onExitEditMode();
-    }, [onUpdateContent, onExitEditMode]);
-
+    // 现在进行条件渲染
     if (isEditing) {
         const editingStyle: React.CSSProperties = {
             width: '100%',
@@ -324,6 +430,9 @@ export const EditableTextSection = (props: EditableTextSectionProps) => {
             color: style.color,
             whiteSpace: 'pre-wrap',
             overflowWrap: 'break-word',
+            writingMode: style.writingMode,
+            // 垂直文本时限制最大宽度
+            maxWidth: style.writingMode === 'vertical-rl' ? '200px' : undefined,
         };
         return (
             <div
@@ -339,16 +448,17 @@ export const EditableTextSection = (props: EditableTextSectionProps) => {
             />
         );
     }
-    
-    const hasCurve = style.curve && style.curve !== 0;
 
+    // 显示模式：遵循布局优先原则，容器尺寸由父级 LayoutBox 决定
     const displayStyle: React.CSSProperties = {
         width: '100%',
-        minHeight: `${style.fontSize}px`, // Ensure a minimum height
+        height: '100%',
+        minHeight: style.writingMode === 'vertical-rl' ? 'auto' : `${style.fontSize}px`,
         outline: isSelected ? '2px solid #3b82f6' : 'none',
         outlineOffset: '2px',
         cursor: 'pointer',
         position: 'relative',
+        overflow: 'visible', // 确保旋转内容可见
     };
     
     return (

@@ -165,6 +165,12 @@ const scaleTemplateElements = (template: PosterTemplate, scaleFactor: number): v
                 item.style.fontSize = parseAndScale(item.style.fontSize, scaleFactor);
                 item.style.letterSpacing = parseAndScale(item.style.letterSpacing, scaleFactor);
             }
+            
+            // Handle rotation for all section types
+            if (item.rotation !== undefined) {
+                // Rotation is in degrees, no scaling needed
+                // item.rotation = item.rotation; // Keep original rotation
+            }
         }
     };
     scaleRecursively(template.layoutBoxes);
@@ -279,11 +285,13 @@ export const generatePosterLayout = async (
                                                 description: "ONLY for new text sections in empty containers. Provide a suitable style.",
                                                 properties: {
                                                     fontSize: { type: SchemaType.NUMBER, description: "Font size in pixels." },
-                                                    color: { type: SchemaType.STRING, description: "Hex color code." }
+                                                    color: { type: SchemaType.STRING, description: "Hex color code." },
+                                                    writingMode: { type: SchemaType.STRING, description: "Text direction: 'horizontal-tb' or 'vertical-rl'." }
                                                 }
                                             }
                                         }
-                                    }
+                                    },
+                                    rotation: { type: SchemaType.NUMBER, description: "Rotation angle in degrees (0-360). Use sparingly for design emphasis." }
                                 },
                                 required: ['sectionRole']
                             }
@@ -339,6 +347,8 @@ ${templateStructureString}
     -   **LANGUAGE:** All generated text MUST be in **Chinese**. All image \`prompt\`s MUST be in **English**.
     -   **TEXT:** If the user provides content, map it to the appropriate text sections. If not, write creative, compelling copy based on the theme. For text sections, the content must be structured as a \`content\` array with a single TextSpan object, like this: \`"content": [{ "text": "Your text here", "style": {} }]\`.
     -   **IMAGES:** Create descriptive, artistic English prompts for all image sections that need one.
+    -   **TEXT ROTATION:** Use the \`rotation\` property sparingly for design emphasis (e.g., 15-45 degrees for dynamic headings). Remember that rotation is purely visual - the layout box size remains unchanged.
+    -   **VERTICAL TEXT:** Use \`"writingMode": "vertical-rl"\` for Chinese text when appropriate for the design aesthetic.
 
 8.  **JSON OUTPUT:** Your final output MUST be ONLY a valid JSON object that matches the provided schema.`;
     

@@ -1,10 +1,11 @@
 import OpenAI from "openai";
 import { AIAdapter } from './adapters/AIAdapter';
 import { OpenAIAdapter } from './adapters/openaiAdapter';
+import { MCPAdapter } from './adapters/mcpAdapter';
 import { withAdapterTelemetry } from './adapters/adapterTelemetryDecorator';
 
 // --- 定义服务商类型 ---
-type AIProvider = 'openai';
+type AIProvider = 'openai' | 'mcp';
 
 interface ModelConfig {
   provider: AIProvider;
@@ -21,6 +22,8 @@ export const AI_MODELS: Record<string, ModelConfig> = {
   LAYOUT_GENERATION: { provider: 'openai', model: 'gpt-4o' },
   CONTENT_GENERATION: { provider: 'openai', model: 'gpt-4o' },
   IMAGE_GENERATION: { provider: 'openai', model: 'dall-e-3' },
+  // MCP服务配置
+  BACKGROUND_REMOVAL: { provider: 'mcp', model: 'background-remover' },
 };
 
 // --- OpenAI 客户端 ---
@@ -58,3 +61,6 @@ export const aiAdapters: Partial<Record<AIProvider, AIAdapter>> = {};
 if (openai.client) {
   aiAdapters.openai = withAdapterTelemetry(new OpenAIAdapter(), { provider: 'openai', retry: { attempts: 2, timeoutMs: 40000 } });
 }
+
+// 注册MCP适配器（始终可用，因为它是本地服务）
+aiAdapters.mcp = new MCPAdapter();

@@ -89,29 +89,34 @@ const LayerItem = ({ item, level, path, selectedPath, onSelect, onToggleVisibili
 const findElementInDraft = (draft: PosterTemplate, path: string[]): { parent: LayoutBox | PosterTemplate | null, element: ArticleSection | DecorationElement | null } => {
     if (!path || path.length === 0) return { parent: null, element: null };
     
-    let parent: LayoutBox | PosterTemplate | null = draft;
-    let element: ArticleSection | DecorationElement | null = null;
-    let currentLevel: (ArticleSection | DecorationElement)[] = [...draft.layoutBoxes, ...(draft.decorations || [])];
+    try {
+        let parent: LayoutBox | PosterTemplate | null = draft;
+        let element: ArticleSection | DecorationElement | null = null;
+        let currentLevel: (ArticleSection | DecorationElement)[] = [...draft.layoutBoxes, ...(draft.decorations || [])];
 
-    for (let i = 0; i < path.length; i++) {
-        const id = path[i];
-        const found = currentLevel.find(item => item.id === id);
+        for (let i = 0; i < path.length; i++) {
+            const id = path[i];
+            const found = currentLevel.find(item => item.id === id);
 
-        if (!found) return { parent: null, element: null };
-        
-        element = found;
+            if (!found) return { parent: null, element: null };
+            
+            element = found;
 
-        if (i < path.length - 1) { // If not the last item, it must be a container to traverse deeper
-            if (found.type === 'layout_box') {
-                parent = found;
-                currentLevel = found.sections;
-            } else {
-                // Invalid path, tried to traverse into a non-container
-                return { parent: null, element: null };
+            if (i < path.length - 1) { // If not the last item, it must be a container to traverse deeper
+                if (found.type === 'layout_box') {
+                    parent = found;
+                    currentLevel = found.sections;
+                } else {
+                    // Invalid path, tried to traverse into a non-container
+                    return { parent: null, element: null };
+                }
             }
         }
+        return { parent, element };
+    } catch (error) {
+        console.error('Error finding element in draft:', error);
+        return { parent: null, element: null };
     }
-    return { parent, element };
 };
 
 const deepCloneWithNewIds = (element: ArticleSection | DecorationElement): ArticleSection | DecorationElement => {

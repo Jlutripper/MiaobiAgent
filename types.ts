@@ -11,6 +11,26 @@ export type Guide = {
 export type PredefinedTool = 'poster' | 'generator' | 'upscaler' | 'remover' | 'chat' | 'long_article';
 export type Tool = PredefinedTool | string; // string for custom tool IDs
 
+// MCP服务相关类型
+export type MCPBackgroundRemovalMethod = 'ai_model' | 'traditional_algorithm' | 'hybrid';
+export type MCPQualityLevel = 'high' | 'medium' | 'fast';
+export type MCPImageFormat = 'png' | 'webp' | 'jpg' | 'jpeg';
+
+export interface MCPBackgroundRemovalOptions {
+    method?: MCPBackgroundRemovalMethod;
+    quality?: MCPQualityLevel;
+    edgeSmoothing?: boolean;
+    preserveTransparency?: boolean;
+    outputFormat?: MCPImageFormat;
+}
+
+export interface MCPBatchProcessingResult {
+    id: string;
+    success: boolean;
+    result?: string;
+    error?: string;
+}
+
 export type AspectRatio = '1:1' | '16:9' | '9:16' | '4:3' | '3:4';
 
 export type InteractionType = 'aspect_ratio_selector' | 'file_upload' | 'long_article_details_input';
@@ -159,7 +179,7 @@ interface Anchor {
     originPoint: 'top-left' | 'top-center' | 'top-right' | 
                  'center-left' | 'center' | 'center-right' | 
                  'bottom-left' | 'bottom-center' | 'bottom-right';
-    offset: { x: number; y: number; };
+    offset: { x: string; y: string; }; // 支持 '10px', '5%', '-20px' 等格式
     attachmentMode?: 'outside' | 'inside';
 }
 

@@ -8,6 +8,8 @@ import { Tooltip } from './Tooltip';
 import { DecorationPanel } from './DecorationPanel';
 import { FlexLayoutBoxPanel } from './PosterTemplateEditor';
 import { getAllLayoutBoxes, getPixelBounds, findBoxById } from './utils/layoutUtils';
+import { updateConstraints, validateConstraints } from './utils/constraintUtils';
+import { calculateAnchoredPosition } from './utils/anchorUtils';
 import { useNumericInput } from '../hooks/useNumericInput';
 
 
@@ -197,50 +199,57 @@ const LayoutBoxPanel = ({ box, onUpdate, parentIsGrid, template, mode }: { box: 
     const rowGapProps = useNumericInput(box.rowGap, (val) => onUpdate({ rowGap: val }));
     
     const handleConstraintChange = (key: keyof LayoutBox['constraints'], value: string) => {
-        onUpdate({ constraints: { ...box.constraints, [key]: value || undefined } });
+        const newConstraints = updateConstraints(box.constraints || {}, { [key]: value || undefined });
+        onUpdate({ constraints: newConstraints });
     };
 
     const handleHorizontalAlign = (align: 'start' | 'center' | 'end' | 'stretch') => {
-        onUpdate({
-            constraints: produce(box.constraints, draft => {
-                delete draft.left; delete draft.right; delete draft.centerX;
-                if (align === 'start') draft.left = '0%';
-                else if (align === 'end') draft.right = '0%';
-                else if (align === 'stretch') { draft.left = '0%'; draft.right = '0%'; delete draft.width; }
-                else if (align === 'center') {
-                    if (draft.width === undefined) draft.width = '50%';
-                    draft.centerX = '0px';
-                }
-            })
-        });
+        let newConstraints: Partial<LayoutBox['constraints']> = {};
+        
+        if (align === 'start') {
+            newConstraints = { left: '0%' };
+        } else if (align === 'end') {
+            newConstraints = { right: '0%' };
+        } else if (align === 'stretch') {
+            newConstraints = { left: '0%', right: '0%' };
+        } else if (align === 'center') {
+            newConstraints = { 
+                centerX: '0px', 
+                width: box.constraints?.width || '50%' 
+            };
+        }
+        
+        onUpdate({ constraints: updateConstraints(box.constraints || {}, newConstraints) });
     };
     
     const handleVerticalAlign = (align: 'start' | 'center' | 'end' | 'stretch') => {
-        onUpdate({
-            constraints: produce(box.constraints, draft => {
-                delete draft.top; delete draft.bottom; delete draft.centerY;
-                if (align === 'start') draft.top = '0%';
-                else if (align === 'end') draft.bottom = '0%';
-                else if (align === 'stretch') { draft.top = '0%'; draft.bottom = '0%'; delete draft.height; }
-                else if (align === 'center') {
-                    if (draft.height === undefined) draft.height = '50%';
-                    draft.centerY = '0px';
-                }
-            })
-        });
+        let newConstraints: Partial<LayoutBox['constraints']> = {};
+        
+        if (align === 'start') {
+            newConstraints = { top: '0%' };
+        } else if (align === 'end') {
+            newConstraints = { bottom: '0%' };
+        } else if (align === 'stretch') {
+            newConstraints = { top: '0%', bottom: '0%' };
+        } else if (align === 'center') {
+            newConstraints = { 
+                centerY: '0px', 
+                height: box.constraints?.height || '50%' 
+            };
+        }
+        
+        onUpdate({ constraints: updateConstraints(box.constraints || {}, newConstraints) });
     };
     
     const handleCenterOnCanvas = () => {
-         onUpdate({
-            constraints: produce(box.constraints, draft => {
-                delete draft.left; delete draft.right; delete draft.centerX;
-                delete draft.top; delete draft.bottom; delete draft.centerY;
-                if (draft.width === undefined) draft.width = '50%';
-                if (draft.height === undefined) draft.height = '50%';
-                draft.centerX = '0px';
-                draft.centerY = '0px';
-            })
-        });
+        const newConstraints = {
+            centerX: '0px',
+            centerY: '0px',
+            width: box.constraints?.width || '50%',
+            height: box.constraints?.height || '50%'
+        };
+        
+        onUpdate({ constraints: updateConstraints({}, newConstraints) });
     };
 
     const handleGridTrackChange = (type: 'columns' | 'rows', index: number, value: string, unit: string) => {
@@ -266,7 +275,7 @@ const LayoutBoxPanel = ({ box, onUpdate, parentIsGrid, template, mode }: { box: 
     const gridCols = (box.gridTemplateColumns || '').split(' ').filter(Boolean);
     const gridRows = (box.gridTemplateRows || '').split(' ').filter(Boolean);
     
-    const originPoints: DecorationElement['anchor']['originPoint'][] = [
+    const originPoints: ('top-left' | 'top-center' | 'top-right' | 'center-left' | 'center' | 'center-right' | 'bottom-left' | 'bottom-center' | 'bottom-right')[] = [
         'top-left', 'top-center', 'top-right',
         'center-left', 'center', 'center-right',
         'bottom-left', 'bottom-center', 'bottom-right'
@@ -286,21 +295,17 @@ const LayoutBoxPanel = ({ box, onUpdate, parentIsGrid, template, mode }: { box: 
 
         const selfSize = getPixelBounds(box, parentSize);
         const anchorBounds = getPixelBounds(anchorBox, parentSize);
-        
-        let originX = anchorBounds.left, originY = anchorBounds.top;
-        if (box.anchor.originPoint.includes('center')) originX = anchorBounds.centerX;
-        if (box.anchor.originPoint.includes('right')) originX = anchorBounds.right;
-        if (box.anchor.originPoint.includes('center')) originY = anchorBounds.centerY;
-        if (box.anchor.originPoint.includes('bottom')) originY = anchorBounds.bottom;
-        
-        const finalX = originX + box.anchor.offset.x;
-        const finalY = originY + box.anchor.offset.y;
 
-        onUpdate({
+        const finalPosition = calculateAnchoredPosition(
+            box.anchor, 
+            anchorBounds, 
+            selfSize,
+            parentSize
+        );        onUpdate({
             anchor: undefined,
             constraints: {
-                left: `${(finalX / parentSize.width) * 100}%`,
-                top: `${(finalY / parentSize.height) * 100}%`,
+                left: `${(finalPosition.x / parentSize.width) * 100}%`,
+                top: `${(finalPosition.y / parentSize.height) * 100}%`,
                 width: `${selfSize.width}px`,
                 height: `${selfSize.height}px`,
             }
@@ -329,7 +334,7 @@ const LayoutBoxPanel = ({ box, onUpdate, parentIsGrid, template, mode }: { box: 
                 <details className="bg-gray-900/50 p-3 rounded-lg border border-gray-700" open><summary className="font-semibold cursor-pointer">位置与尺寸</summary><div className="mt-4 space-y-4">
                     <div className="flex items-center justify-between bg-gray-600/50 p-1 rounded-md">
                         <button onClick={handleSwitchToConstraints} className={`flex-1 p-1 rounded text-xs ${box.anchor === undefined ? 'bg-blue-600' : ''}`}>约束模式</button>
-                        <button onClick={() => onUpdate({ anchor: { elementId: '', originPoint: 'top-left', offset: { x: 0, y: 0 }, attachmentMode: 'outside' } })} className={`flex-1 p-1 rounded text-xs ${box.anchor !== undefined ? 'bg-blue-600' : ''}`}>锚定模式</button>
+                        <button onClick={() => onUpdate({ anchor: { elementId: '', originPoint: 'top-left', offset: { x: '0px', y: '0px' }, attachmentMode: 'outside' } })} className={`flex-1 p-1 rounded text-xs ${box.anchor !== undefined ? 'bg-blue-600' : ''}`}>锚定模式</button>
                     </div>
                     {box.anchor !== undefined ? (
                          <div className="space-y-3 pt-2">
@@ -355,10 +360,10 @@ const LayoutBoxPanel = ({ box, onUpdate, parentIsGrid, template, mode }: { box: 
                                     </div>
                                 </div>
                                 <div>
-                                    <label className="text-sm">偏移 (px)</label>
+                                    <label className="text-sm">偏移 (支持 px 或 %)</label>
                                     <div className="grid grid-cols-2 gap-2 mt-1">
-                                        <input type="number" value={box.anchor.offset.x} onChange={e => onUpdate({ anchor: {...box.anchor!, offset: { ...box.anchor!.offset, x: parseInt(e.target.value, 10) || 0 }} })} placeholder="X" className="w-full p-1 bg-gray-700 border-gray-600 rounded"/>
-                                        <input type="number" value={box.anchor.offset.y} onChange={e => onUpdate({ anchor: {...box.anchor!, offset: { ...box.anchor!.offset, y: parseInt(e.target.value, 10) || 0 }} })} placeholder="Y" className="w-full p-1 bg-gray-700 border-gray-600 rounded"/>
+                                        <input type="text" value={box.anchor.offset.x} onChange={e => onUpdate({ anchor: {...box.anchor!, offset: { ...box.anchor!.offset, x: e.target.value || '0px' }} })} placeholder="X (如: 10px, 5%)" className="w-full p-1 bg-gray-700 border-gray-600 rounded"/>
+                                        <input type="text" value={box.anchor.offset.y} onChange={e => onUpdate({ anchor: {...box.anchor!, offset: { ...box.anchor!.offset, y: e.target.value || '0px' }} })} placeholder="Y (如: 10px, 5%)" className="w-full p-1 bg-gray-700 border-gray-600 rounded"/>
                                     </div>
                                 </div>
                              </>)}

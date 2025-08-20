@@ -159,6 +159,8 @@ const inferLayoutFromAnalysis = async (
 
 4.  **创建内容区块:**
     *   如果元素的 \`type\` 是 'text'，创建一个 \`TextSection\`。其 \`content\` **必须** 是 \`[{ "text": "...", "style": {} }]\`。使用元素的 \`contentDescription\`作为占位符文本，并生成一个合理的初始 \`style\`。
+        *   **文本旋转:** 如果原始视觉设计中的文字有明显的旋转角度，使用 \`rotation\` 属性（角度值）。记住旋转是纯视觉效果，不影响布局框大小。
+        *   **垂直文本:** 如果检测到垂直排列的中文文字，设置 \`"style": { "writingMode": "vertical-rl" }\`。
     *   如果元素的 \`type\` 是 'image'，创建一个 \`ImageSection\` 并遵循以下规则：
         *   \`imageUrl\` **必须** 是空字符串 \`''\`。
         *   使用其 \`contentDescription\` 作为英文 \`prompt\`。

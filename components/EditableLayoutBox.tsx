@@ -4,6 +4,7 @@ import { LayoutBox, DecorationElement, Guide, ArticleSection, TextSection, Image
 import { EditableTextSection } from './EditableTextSection';
 import { EditableImageSection } from './EditableImageSection';
 import { getPixelBounds, calculateStylesFromConstraints, findBoxById } from './utils/layoutUtils';
+import { calculateAnchoredPosition } from './utils/anchorUtils';
 
 
 const SNAP_THRESHOLD = 5;
@@ -53,7 +54,7 @@ export const EditableLayoutBox = (props: EditableLayoutBoxProps) => {
         startY: number;
         startConstraints: LayoutBox['constraints'];
         dragModeConstraints: Partial<LayoutBox['constraints']>;
-        startOffset?: { x: number; y: number };
+        startOffset?: { x: string; y: string };
     } | null>(null);
     
     const isGridChild = parentLayoutMode === 'grid';
@@ -110,7 +111,24 @@ export const EditableLayoutBox = (props: EditableLayoutBoxProps) => {
             if (box.anchor) {
                 const { startOffset } = interactionRef.current;
                 if (!startOffset) return;
-                newUpdates.anchor = { ...box.anchor, offset: { x: startOffset.x + dx, y: startOffset.y + dy } };
+                
+                // 解析原始偏移量
+                const startXValue = parseFloat(startOffset.x.match(/^(-?\d+(?:\.\d+)?)/)?.[1] || '0');
+                const startYValue = parseFloat(startOffset.y.match(/^(-?\d+(?:\.\d+)?)/)?.[1] || '0');
+                const xUnit = startOffset.x.match(/(px|%)$/)?.[1] || 'px';
+                const yUnit = startOffset.y.match(/(px|%)$/)?.[1] || 'px';
+                
+                // 计算新的偏移量值
+                const newXValue = xUnit === '%' ? startXValue + (dx / parentSize.width) * 100 : startXValue + dx;
+                const newYValue = yUnit === '%' ? startYValue + (dy / parentSize.height) * 100 : startYValue + dy;
+                
+                newUpdates.anchor = { 
+                    ...box.anchor, 
+                    offset: { 
+                        x: `${newXValue}${xUnit}`, 
+                        y: `${newYValue}${yUnit}` 
+                    } 
+                };
             } else {
                 const startBounds = getPixelBounds(box, parentSize);
                 let finalX = startBounds.left + dx;
@@ -244,61 +262,14 @@ export const EditableLayoutBox = (props: EditableLayoutBoxProps) => {
         const anchorBox = findBoxById(template.layoutBoxes, box.anchor.elementId);
         if (anchorBox) {
             const selfBounds = getPixelBounds(box, parentSize);
-            const selfWidth = selfBounds.width;
-            const selfHeight = selfBounds.height;
-
+            const selfSize = { width: selfBounds.width, height: selfBounds.height };
             const anchorBounds = getPixelBounds(anchorBox, parentSize);
-            const point = box.anchor.originPoint;
-
-            let originX: number;
-            if (point.includes('left')) originX = anchorBounds.left;
-            else if (point.includes('right')) originX = anchorBounds.right;
-            else originX = anchorBounds.centerX;
-
-            let originY: number;
-            if (point.includes('top')) originY = anchorBounds.top;
-            else if (point.includes('bottom')) originY = anchorBounds.bottom;
-            else originY = anchorBounds.centerY;
             
-            let selfAttachmentPointX: number;
-            let selfAttachmentPointY: number;
+            // 使用简化的锚点计算系统
+            const position = calculateAnchoredPosition(box.anchor, anchorBounds, selfSize, parentSize);
 
-            if (box.anchor.attachmentMode === 'outside') {
-                // Rearchitected logic for 'outside' mode based on opposite point attachment
-                switch (point) {
-                    case 'top-left':    selfAttachmentPointX = selfWidth; selfAttachmentPointY = 0; break;
-                    case 'top-center':  selfAttachmentPointX = selfWidth / 2; selfAttachmentPointY = selfHeight; break;
-                    case 'top-right':   selfAttachmentPointX = 0; selfAttachmentPointY = 0; break;
-                    case 'center-left': selfAttachmentPointX = selfWidth; selfAttachmentPointY = selfHeight / 2; break;
-                    case 'center-right':selfAttachmentPointX = 0; selfAttachmentPointY = selfHeight / 2; break;
-                    case 'bottom-left': selfAttachmentPointX = selfWidth; selfAttachmentPointY = selfHeight; break;
-                    case 'bottom-center':selfAttachmentPointX = selfWidth / 2; selfAttachmentPointY = 0; break;
-                    case 'bottom-right':selfAttachmentPointX = 0; selfAttachmentPointY = selfHeight; break;
-                    case 'center':
-                    default:
-                        selfAttachmentPointX = selfWidth / 2;
-                        selfAttachmentPointY = selfHeight / 2;
-                        break;
-                }
-            } else {
-                // Correct, untouched logic for 'inside' mode
-                if (point.includes('left')) selfAttachmentPointX = 0;
-                else if (point.includes('right')) selfAttachmentPointX = selfWidth;
-                else selfAttachmentPointX = selfWidth / 2;
-
-                if (point.includes('top')) selfAttachmentPointY = 0;
-                else if (point.includes('bottom')) selfAttachmentPointY = selfHeight;
-                else selfAttachmentPointY = selfHeight / 2;
-            }
-
-            let finalX = originX - selfAttachmentPointX;
-            let finalY = originY - selfAttachmentPointY;
-
-            finalX += box.anchor.offset.x;
-            finalY += box.anchor.offset.y;
-
-            wrapperStyle.left = `${finalX}px`;
-            wrapperStyle.top = `${finalY}px`;
+            wrapperStyle.left = `${position.x}px`;
+            wrapperStyle.top = `${position.y}px`;
             wrapperStyle.width = `${selfBounds.width}px`;
             wrapperStyle.height = `${selfBounds.height}px`;
             wrapperStyle.cursor = 'move';

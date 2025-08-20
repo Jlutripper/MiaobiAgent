@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useLayoutEffect, useMemo, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useLayoutEffect, useMemo } from 'react';
 import { produce } from 'immer';
 import { PosterTemplate, LayoutBox, ArticleSection, TextSection, ImageSection, TextStyleDefinition, DecorationElement, TextSpan, TextSpanStyle } from '../types';
 import { EditableDecorationElement } from './EditableDecorationElement';
@@ -9,6 +9,7 @@ import { LayersPanel } from './LayersPanel';
 import { InspectorPanel } from './InspectorPanel';
 import { getPixelBounds, findBoxById } from './utils/layoutUtils';
 import { applyStyleToSelection } from './utils/textUtils';
+import { EditorErrorBoundary } from './EditorErrorBoundary';
 
 export const FlexLayoutBoxPanel = ({ box, onUpdate }: { box: LayoutBox, onUpdate: (updates: Partial<LayoutBox>) => void }) => (
     <div className="space-y-4">
@@ -105,7 +106,8 @@ export const PosterTemplateEditor = ({ initialTemplate, onSave, onCancel }: { in
     const editorWrapperRef = useRef<HTMLDivElement>(null);
     const lastPanPointRef = useRef({ x: 0, y: 0 });
     
-    const findElementByPath = useCallback((path: string[]): any => {
+    // 将findElementByPath改为纯函数，避免useCallback的依赖问题
+    const findElementByPath = useCallback((path: string[], template: PosterTemplate): any => {
         if (!path || path.length === 0) return null;
     
         let currentLevelItems: any[] = [...template.layoutBoxes, ...(template.decorations || [])];
@@ -122,9 +124,9 @@ export const PosterTemplateEditor = ({ initialTemplate, onSave, onCancel }: { in
             }
         }
         return element;
-    }, [template]);
+    }, []);
 
-    const selectedElement = useMemo(() => findElementByPath(selectedPath), [selectedPath, findElementByPath]);
+    const selectedElement = useMemo(() => findElementByPath(selectedPath, template), [selectedPath, template, findElementByPath]);
 
     const handleSelectPath = (path: string[]) => {
         // If we are currently editing text and we are selecting a *different* path,
@@ -293,114 +295,116 @@ export const PosterTemplateEditor = ({ initialTemplate, onSave, onCancel }: { in
     };
 
     return (
-        <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm z-40 flex flex-col p-2 sm:p-4 animate-pop-in">
-            <div className="bg-gray-800 w-full h-full rounded-2xl shadow-2xl border border-gray-700 flex flex-col text-white">
-                <header className="flex justify-between items-center p-3 border-b border-gray-700 flex-shrink-0">
-                    <div><h2 className="text-xl font-bold">编辑海报模板: {template.name}</h2>{saveError && <p className="text-red-400 text-sm mt-1">{saveError}</p>}</div>
-                    <div className="flex gap-2"><button onClick={onCancel} className="px-4 py-2 bg-gray-600 rounded-lg hover:bg-gray-500">取消</button><button onClick={handleSave} className="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 font-semibold">保存</button></div>
-                </header>
-                <div className="flex-grow flex flex-row overflow-hidden">
-                    {/* Left Panel: Layers & Tools */}
-                    <aside className="w-80 bg-gray-800 border-r border-gray-700 flex-shrink-0 flex flex-col">
-                        <div className="flex-grow min-h-0 overflow-y-auto p-2">
-                             <LayersPanel 
-                                template={template}
-                                selectedPath={selectedPath}
-                                onSelect={handleSelectPath}
-                                onUpdate={updater => setTemplate(produce(template, updater))}
-                            />
-                        </div>
-                    </aside>
+        <EditorErrorBoundary>
+            <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm z-40 flex flex-col p-2 sm:p-4 animate-pop-in">
+                <div className="bg-gray-800 w-full h-full rounded-2xl shadow-2xl border border-gray-700 flex flex-col text-white">
+                    <header className="flex justify-between items-center p-3 border-b border-gray-700 flex-shrink-0">
+                        <div><h2 className="text-xl font-bold">编辑海报模板: {template.name}</h2>{saveError && <p className="text-red-400 text-sm mt-1">{saveError}</p>}</div>
+                        <div className="flex gap-2"><button onClick={onCancel} className="px-4 py-2 bg-gray-600 rounded-lg hover:bg-gray-500">取消</button><button onClick={handleSave} className="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 font-semibold">保存</button></div>
+                    </header>
+                    <div className="flex-grow flex flex-row overflow-hidden">
+                        {/* Left Panel: Layers & Tools */}
+                        <aside className="w-80 bg-gray-800 border-r border-gray-700 flex-shrink-0 flex flex-col">
+                            <div className="flex-grow min-h-0 overflow-y-auto p-2">
+                                 <LayersPanel 
+                                    template={template}
+                                    selectedPath={selectedPath}
+                                    onSelect={handleSelectPath}
+                                    onUpdate={updater => setTemplate(produce(template, updater))}
+                                />
+                            </div>
+                        </aside>
 
-                    {/* Center Panel: Canvas */}
-                    <main ref={editorWrapperRef} className="flex-grow bg-gray-900 flex items-start justify-center p-4 overflow-hidden relative cursor-grab" onMouseDown={handleCanvasMouseDown} onWheel={handleWheel} onClick={handleCanvasClick}>
-                        <div 
-                            style={{ 
-                                position: 'absolute',
-                                top: pan.y,
-                                left: pan.x,
-                                transform: `scale(${zoom})`, 
-                                transformOrigin: 'top left',
-                            }} 
-                        >
-                             <PosterContent template={template}>
-                                 {template.layoutBoxes.map((box) => (
-                                    <EditableLayoutBox 
-                                        key={box.id} 
-                                        box={box}
-                                        path={[box.id]}
-                                        parentSize={posterSize} 
-                                        zoom={zoom} 
-                                        isSelected={isIdSelected}
-                                        template={template}
-                                        otherBoxes={template.layoutBoxes.filter(b => b.id !== box.id)}
-                                        otherDecorations={template.decorations || []}
-                                        onSetGuides={setGuides}
-                                        onSelect={handleSelectPath}
-                                        onUpdate={updateElementByPath}
-                                        editingTextPath={editingTextPath}
-                                        onEnterTextEditMode={setEditingTextPath}
-                                        onExitTextEditMode={() => setEditingTextPath(null)}
-                                        onSelectionChange={setActiveTextSelection}
-                                    />
-                                ))}
-                                {(template.decorations || []).map(deco => (
-                                    <EditableDecorationElement
-                                        key={deco.id}
-                                        element={deco}
-                                        parentSize={posterSize}
-                                        template={template}
-                                        zoom={zoom}
-                                        isSelected={isIdSelected(deco.id)}
-                                        onSetGuides={setGuides}
-                                        onClick={(e) => { e.stopPropagation(); handleSelectPath([deco.id]); }}
-                                        onUpdate={(id, updates) => updateElementByPath([id], updates)}
-                                    />
-                                ))}
-                            </PosterContent>
-                        </div>
-                        
-                        {/* Guide Container */}
-                        <div
-                            className="absolute pointer-events-none"
-                            style={{
-                                top: pan.y,
-                                left: pan.x,
-                                transform: `scale(${zoom})`,
-                                transformOrigin: 'top left',
-                                width: posterSize.width,
-                                height: posterSize.height,
-                                zIndex: 9998,
-                            }}
-                        >
-                            {guides.map(renderGuide)}
-                        </div>
+                        {/* Center Panel: Canvas */}
+                        <main ref={editorWrapperRef} className="flex-grow bg-gray-900 flex items-start justify-center p-4 overflow-hidden relative cursor-grab" onMouseDown={handleCanvasMouseDown} onWheel={handleWheel} onClick={handleCanvasClick}>
+                            <div 
+                                style={{ 
+                                    position: 'absolute',
+                                    top: pan.y,
+                                    left: pan.x,
+                                    transform: `scale(${zoom})`, 
+                                    transformOrigin: 'top left',
+                                }} 
+                            >
+                                 <PosterContent template={template}>
+                                     {template.layoutBoxes.map((box) => (
+                                        <EditableLayoutBox 
+                                            key={box.id} 
+                                            box={box}
+                                            path={[box.id]}
+                                            parentSize={posterSize} 
+                                            zoom={zoom} 
+                                            isSelected={isIdSelected}
+                                            template={template}
+                                            otherBoxes={template.layoutBoxes.filter(b => b.id !== box.id)}
+                                            otherDecorations={template.decorations || []}
+                                            onSetGuides={setGuides}
+                                            onSelect={handleSelectPath}
+                                            onUpdate={updateElementByPath}
+                                            editingTextPath={editingTextPath}
+                                            onEnterTextEditMode={setEditingTextPath}
+                                            onExitTextEditMode={() => setEditingTextPath(null)}
+                                            onSelectionChange={setActiveTextSelection}
+                                        />
+                                    ))}
+                                    {(template.decorations || []).map(deco => (
+                                        <EditableDecorationElement
+                                            key={deco.id}
+                                            element={deco}
+                                            parentSize={posterSize}
+                                            template={template}
+                                            zoom={zoom}
+                                            isSelected={isIdSelected(deco.id)}
+                                            onSetGuides={setGuides}
+                                            onClick={(e) => { e.stopPropagation(); handleSelectPath([deco.id]); }}
+                                            onUpdate={(id, updates) => updateElementByPath([id], updates)}
+                                        />
+                                    ))}
+                                </PosterContent>
+                            </div>
+                            
+                            {/* Guide Container */}
+                            <div
+                                className="absolute pointer-events-none"
+                                style={{
+                                    top: pan.y,
+                                    left: pan.x,
+                                    transform: `scale(${zoom})`,
+                                    transformOrigin: 'top left',
+                                    width: posterSize.width,
+                                    height: posterSize.height,
+                                    zIndex: 9998,
+                                }}
+                            >
+                                {guides.map(renderGuide)}
+                            </div>
 
-                        <div className="absolute bottom-4 right-4 bg-gray-800 text-white rounded-lg shadow-2xl p-1 flex items-center gap-1 z-30">
-                            <button onClick={() => setZoom(z => Math.max(0.1, z - 0.2))} title="缩小" className="p-1.5 hover:bg-gray-700 rounded"><MagnifyingGlassMinusIcon className="w-5 h-5" /></button>
-                            <button onClick={fitToScreen} className="w-16 text-sm font-semibold hover:bg-gray-700 rounded p-1">{Math.round(zoom * 100)}%</button>
-                            <button onClick={() => setZoom(z => Math.min(10, z + 0.2))} title="放大" className="p-1.5 hover:bg-gray-700 rounded"><MagnifyingGlassPlusIcon className="w-5 h-5" /></button>
-                        </div>
-                    </main>
+                            <div className="absolute bottom-4 right-4 bg-gray-800 text-white rounded-lg shadow-2xl p-1 flex items-center gap-1 z-30">
+                                <button onClick={() => setZoom(z => Math.max(0.1, z - 0.2))} title="缩小" className="p-1.5 hover:bg-gray-700 rounded"><MagnifyingGlassMinusIcon className="w-5 h-5" /></button>
+                                <button onClick={fitToScreen} className="w-16 text-sm font-semibold hover:bg-gray-700 rounded p-1">{Math.round(zoom * 100)}%</button>
+                                <button onClick={() => setZoom(z => Math.min(10, z + 0.2))} title="放大" className="p-1.5 hover:bg-gray-700 rounded"><MagnifyingGlassPlusIcon className="w-5 h-5" /></button>
+                            </div>
+                        </main>
 
-                    {/* Right Panel: Inspector */}
-                     <aside className="w-96 bg-gray-800 border-l border-gray-700 flex-shrink-0 flex flex-col">
-                        <div className="flex-grow min-h-0 overflow-y-auto p-4">
-                             <InspectorPanel 
-                                selectedElement={{ element: selectedElement, path: selectedPath }}
-                                onUpdate={updates => updateElementByPath(selectedPath, updates)}
-                                onGlobalUpdate={updates => updateElementByPath([], updates)}
-                                template={template}
-                                posterWidth={posterSize.width}
-                                onFileUpload={handleFileUpload}
-                                isProcessing={isProcessing}
-                                activeTextSelection={activeTextSelection}
-                                onApplyStyleToSelection={handleApplyStyleToSelection}
-                            />
-                        </div>
-                    </aside>
+                        {/* Right Panel: Inspector */}
+                         <aside className="w-96 bg-gray-800 border-l border-gray-700 flex-shrink-0 flex flex-col">
+                            <div className="flex-grow min-h-0 overflow-y-auto p-4">
+                                 <InspectorPanel 
+                                    selectedElement={{ element: selectedElement, path: selectedPath }}
+                                    onUpdate={updates => updateElementByPath(selectedPath, updates)}
+                                    onGlobalUpdate={updates => updateElementByPath([], updates)}
+                                    template={template}
+                                    posterWidth={posterSize.width}
+                                    onFileUpload={handleFileUpload}
+                                    isProcessing={isProcessing}
+                                    activeTextSelection={activeTextSelection}
+                                    onApplyStyleToSelection={handleApplyStyleToSelection}
+                                />
+                            </div>
+                        </aside>
+                    </div>
                 </div>
             </div>
-        </div>
+        </EditorErrorBoundary>
     );
 };

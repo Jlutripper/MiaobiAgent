@@ -1,5 +1,5 @@
 import { AI_MODELS, aiAdapters } from './aiClient';
-import { GenerateJSONParams, GenerateTextParams, GenerateImageParams } from './adapters/AIAdapter';
+import { GenerateJSONParams, GenerateTextParams, GenerateImageParams, MCPServiceParams } from './adapters/AIAdapter';
 import { extractFirstJson } from './utils/aiRequestUtils';
 import { layoutBoxSchema } from './generatedSchemas';
 
@@ -65,6 +65,31 @@ export const unifiedAIService = {
     if (!adapter) throw new Error(`No adapter or client initialized for provider: ${config.provider}`);
 
     return adapter.generateImage({ ...params, task: config.model });
+  },
+
+  /**
+   * 调用MCP服务
+   * 专门用于本地MCP服务调用，如背景移除等
+   */
+  async callMCPService(task: string, method: string, data: any, options?: Record<string, any>): Promise<string> {
+    const config = AI_MODELS[task];
+    if (!config) throw new Error(`No model configuration found for MCP task: ${task}`);
+    
+    if (config.provider !== 'mcp') {
+      throw new Error(`Task ${task} is not configured for MCP provider`);
+    }
+    
+    const adapter = aiAdapters.mcp;
+    if (!adapter || !adapter.callMCPService) {
+      throw new Error('MCP adapter not available or does not support MCP service calls');
+    }
+    
+    return adapter.callMCPService({
+      task: config.model,
+      method,
+      data,
+      options: options || {}
+    });
   },
 };
 
