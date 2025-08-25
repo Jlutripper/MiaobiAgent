@@ -27,10 +27,9 @@ export const upscaleImage = async (base64ImageData: string): Promise<string> => 
 };
 
 /**
- * 专业背景移除服务 - 通过MCP调用
+ * 背景移除服务 - 通过AI重新生成
  * 
- * 使用真正的背景移除算法，而非AI重新生成
- * 支持多种背景移除方法和高级选项
+ * 使用AI模型分析原图并生成移除背景的新图片
  */
 export const removeImageBackground = async (
     base64ImageData: string, 
@@ -48,59 +47,38 @@ export const removeImageBackground = async (
             throw new Error('Invalid image data. Expected base64 data URL format.');
         }
 
-        // 设置默认选项
-        const defaultOptions = {
-            method: 'ai_model' as const,
-            quality: 'high' as const,
-            edgeSmoothing: true,
-            preserveTransparency: true,
-            outputFormat: 'png' as const,
-            ...options
-        };
+        console.log('🎯 [Background Removal] Starting AI-based background removal...');
 
-        console.log('🎯 [Background Removal] Starting MCP background removal...', {
-            method: defaultOptions.method,
-            quality: defaultOptions.quality,
-            outputFormat: defaultOptions.outputFormat
+        // 首先分析图片内容
+        const description = await unifiedAIService.generateText({
+            task: 'CONTENT_GENERATION',
+            prompt: 'Analyze this image and provide a detailed description of the main subject that should be kept when removing the background. Focus on the foreground object, person, or subject that should remain visible. Describe their appearance, pose, clothing, and any important details.',
+            imageBase64: base64ImageData,
+            systemInstruction: 'You are an expert at analyzing images for background removal. Provide a clear, detailed description of what should remain visible after background removal.'
         });
 
-        // 调用MCP背景移除服务
-        const result = await unifiedAIService.callMCPService(
-            'BACKGROUND_REMOVAL',
-            defaultOptions.method,
-            base64ImageData,
-            {
-                quality: defaultOptions.quality,
-                edgeSmoothing: defaultOptions.edgeSmoothing,
-                preserveTransparency: defaultOptions.preserveTransparency,
-                outputFormat: defaultOptions.outputFormat
-            }
-        );
+        // 生成新图片，主体保持不变但背景透明
+        const prompt = `Create a high-quality image with transparent background showing: ${description}. The subject should be isolated from any background, with clean edges and professional quality. PNG format with transparency.`;
 
-        console.log('✅ [Background Removal] MCP background removal completed successfully');
+        const result = await unifiedAIService.generateImage({
+            task: 'IMAGE_GENERATION',
+            prompt: prompt,
+            aspectRatio: '1:1'
+        });
+
+        console.log('✅ [Background Removal] AI-based background removal completed successfully');
         return result;
 
     } catch (error) {
-        console.error('❌ [Background Removal] MCP service failed:', error);
+        console.error('❌ [Background Removal] AI service failed:', error);
         
         // 提供清晰的错误信息和解决建议
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         
-        if (errorMessage.includes('MCP adapter not available')) {
-            throw new Error(
-                '背景移除服务暂时不可用。请确保MCP服务已正确配置和启动。\n' +
-                '配置指南：检查环境变量 MCP_BACKGROUND_REMOVER_PATH 是否正确设置。'
-            );
-        }
-        
-        if (errorMessage.includes('timeout')) {
-            throw new Error(
-                '背景移除服务超时。图片可能太大或服务器负载过高。\n' +
-                '建议：尝试压缩图片或稍后重试。'
-            );
-        }
-        
-        throw new Error(`背景移除失败: ${errorMessage}`);
+        throw new Error(
+            `背景移除失败: ${errorMessage}\n` +
+            '建议：确保图片清晰且主体明显，或尝试使用其他图片。'
+        );
     }
 };
 
@@ -143,53 +121,22 @@ export const batchRemoveImageBackground = async (
             
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            console.error(`❌ [Batch Background Removal] Failed for image ${image.id}:`, errorMessage);
             
             results.push({
                 id: image.id,
                 success: false,
                 error: errorMessage
             });
+            
+            console.error(`❌ [Batch Background Removal] Failed for image ${image.id}:`, errorMessage);
         }
     }
     
     // 最终进度回调
-    options.onProgress?.(images.length, images.length, 'completed');
+    options.onProgress?.(images.length, images.length, '');
     
     const successCount = results.filter(r => r.success).length;
     console.log(`✅ [Batch Background Removal] Completed: ${successCount}/${images.length} successful`);
     
     return results;
 };
-
-/*
-团队集成指南：
-
-1. 环境变量配置（在项目根目录创建.env文件）：
-   MCP_BACKGROUND_REMOVER_PATH=/path/to/your/mcp-server.js
-   MCP_BACKGROUND_REMOVER_METHOD=ai_model
-   MCP_BACKGROUND_REMOVER_TIMEOUT=30000
-
-2. MCP服务器要求：
-   - 必须实现 "remove_background" 工具
-   - 支持 jsonrpc 2.0 协议
-   - 输入格式：{ imageData: string, method: string, options: {...} }
-   - 输出格式：{ success: boolean, imageData: string }
-
-3. 调用示例：
-   const result = await removeImageBackground(base64Image, {
-     method: 'ai_model',
-     quality: 'high',
-     edgeSmoothing: true
-   });
-
-4. 错误处理：
-   - 自动提供用户友好的错误信息
-   - 包含解决建议和配置指导
-   - 支持超时和重试机制
-
-5. 性能优化：
-   - 支持批量处理
-   - 提供进度回调
-   - 智能缓存（团队可扩展）
-*/

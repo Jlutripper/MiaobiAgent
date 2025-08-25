@@ -1,37 +1,114 @@
-import { AI_MODELS, aiAdapters } from './aiClient';
-import { GenerateJSONParams, GenerateTextParams, GenerateImageParams, MCPServiceParams } from './adapters/AIAdapter';
+import { AI_MODELS, openai } from './aiClient';
+import OpenAI from 'openai';
 import { extractFirstJson } from './utils/aiRequestUtils';
 import { layoutBoxSchema } from './generatedSchemas';
+import { SchemaType } from './utils/aiSchemaTypes';
+
+// --- 通用参数类型定义 ---
+export interface GenerateJSONParams {
+  task: string;
+  prompt: string;
+  systemInstruction?: string;
+  schema?: any; // Optional JSON schema in our internal format
+}
+
+export interface GenerateTextParams {
+  task: string;
+  prompt: string;
+  systemInstruction?: string;
+  imageBase64?: string;
+  mimeType?: string;
+}
+
+export interface GenerateImageParams {
+  task: string;
+  prompt: string;
+  aspectRatio?: string;
+}
+
+// Helper: convert our simple schema object into a text description for OpenAI
+const schemaToText = (schema: any, indent = ''): string => {
+    if (!schema || !schema.properties) return '';
+    let text = '{\n';
+    const properties = schema.properties;
+    const required = schema.required || [];
+
+    for (const key in properties) {
+        const prop = properties[key];
+        const isRequired = required.includes(key);
+        const requiredMarker = isRequired ? '' : '?';
+        const description = prop.description ? ` // ${prop.description}` : '';
+        
+        let typeString = '';
+        switch(prop.type) {
+            case SchemaType.STRING:
+                typeString = prop.enum ? prop.enum.map((e:string) => `"${e}"`).join(' | ') : 'string';
+                break;
+            case SchemaType.NUMBER:
+                typeString = 'number';
+                break;
+            case SchemaType.BOOLEAN:
+                typeString = 'boolean';
+                break;
+            case SchemaType.ARRAY:
+                const itemSchema = prop.items || { type: 'any' };
+                const itemText = schemaToText(itemSchema, indent + '  ');
+                typeString = itemSchema.properties ? `Array<${itemText}>` : `Array<${itemSchema.type?.toLowerCase() || 'any'}>`;
+                break;
+            case SchemaType.OBJECT:
+                typeString = schemaToText(prop, indent + '  ');
+                break;
+            default:
+                typeString = 'any';
+        }
+        text += `${indent}  "${key}"${requiredMarker}: ${typeString};${description}\n`;
+    }
+    text += `${indent}}`;
+    return text;
+};
 
 /**
- * 统一AI服务 (路由器版本)
+ * 统一AI服务 (简化版本)
  * 
- * 这个服务现在是一个纯粹的路由器。它不再包含任何特定于服务商的实现逻辑。
- * 它的职责是：
- * 1. 根据任务类型，从 `AI_MODELS` 配置中查找应该使用哪个服务商 (`provider`)。
- * 2. 从 `aiAdapters` 注册表中获取该服务商对应的适配器实例。
- * 3. 调用适配器的通用方法，并将所有参数透传过去。
- * 
- * 这种设计实现了真正的“可插拔”架构。
+ * 直接使用OpenAI兼容的客户端，不再使用adapter模式。
+ * 所有功能都通过模型名称区分，简化架构。
  */
 export const unifiedAIService = {
 
   async generateJSON(params: GenerateJSONParams): Promise<string> {
-    const config = AI_MODELS[params.task];
-    if (!config) throw new Error(`No model configuration found for task: ${params.task}`);
+    const modelName = AI_MODELS[params.task];
+    if (!modelName) throw new Error(`No model configuration found for task: ${params.task}`);
     
-    const adapter = aiAdapters[config.provider];
-    if (!adapter) throw new Error(`No adapter or client initialized for provider: ${config.provider}`);
-    
-    // 委托给具体的适配器执行
-    const raw = await adapter.generateJSON({ ...params, task: config.model });
+    if (!openai.client) throw new Error("OpenAI client is not initialized.");
 
-    // 运行时校验：当提供了schema时进行解析与校验（默认使用 layoutBoxSchema 示例；外部也可传入 params.schema 覆盖）
-    const targetSchema = params.schema || layoutBoxSchema;
+    const { prompt, systemInstruction, schema } = params;
+
+    let finalSystemInstruction = systemInstruction || '';
+    if (schema) {
+        const schemaDescription = schemaToText(schema);
+        finalSystemInstruction += `\nYou MUST respond ONLY with a valid JSON object. The JSON object MUST strictly adhere to the following TypeScript interface:\n${schemaDescription}`;
+    } else {
+        finalSystemInstruction += "\nYou MUST respond ONLY with a valid JSON object.";
+    }
+
+    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+      { role: "system", content: finalSystemInstruction },
+      { role: "user", content: prompt }
+    ];
+
+    const response = await openai.client.chat.completions.create({
+      model: modelName,
+      messages: messages,
+      response_format: { type: "json_object" },
+    });
+    
+    const raw = response.choices[0].message.content || '{}';
+
+    // 运行时校验：当提供了schema时进行解析与校验
+    const targetSchema = schema || layoutBoxSchema;
     try {
       const parsed = JSON.parse(raw);
-      // 简化版校验：仅校验必填字段是否存在，类型粗校验（避免引入重库）。后续可接 valibot/zod。
-  validateByLooseSchema(parsed, targetSchema);
+      validateByLooseSchema(parsed, targetSchema);
       return JSON.stringify(parsed);
     } catch (e) {
       // 尝试自愈：从文本中提取第一个 JSON
@@ -48,48 +125,50 @@ export const unifiedAIService = {
   },
 
   async generateText(params: GenerateTextParams): Promise<string> {
-    const config = AI_MODELS[params.task];
-    if (!config) throw new Error(`No model configuration found for task: ${params.task}`);
+    const modelName = AI_MODELS[params.task];
+    if (!modelName) throw new Error(`No model configuration found for task: ${params.task}`);
 
-    const adapter = aiAdapters[config.provider];
-    if (!adapter) throw new Error(`No adapter or client initialized for provider: ${config.provider}`);
+    if (!openai.client) throw new Error("OpenAI client is not initialized.");
 
-  return adapter.generateText({ ...params, task: config.model });
+    const { prompt, systemInstruction, imageBase64 } = params;
+
+    const userContent: OpenAI.Chat.ChatCompletionContentPart[] = [{ type: 'text', text: prompt }];
+    if (imageBase64) {
+        // OpenAI API expects the full data URI for image_url
+        userContent.push({ type: 'image_url', image_url: { url: imageBase64 } });
+    }
+    
+    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
+    if (systemInstruction) {
+        messages.push({ role: 'system', content: systemInstruction });
+    }
+    messages.push({ role: 'user', content: userContent });
+
+    const response = await openai.client.chat.completions.create({
+        model: modelName,
+        messages: messages,
+    });
+    return response.choices[0].message.content || '';
   },
 
   async generateImage(params: GenerateImageParams): Promise<string> {
-    const config = AI_MODELS[params.task];
-    if (!config) throw new Error(`No model configuration found for task: ${params.task}`);
+    const modelName = AI_MODELS[params.task];
+    if (!modelName) throw new Error(`No model configuration found for task: ${params.task}`);
 
-    const adapter = aiAdapters[config.provider];
-    if (!adapter) throw new Error(`No adapter or client initialized for provider: ${config.provider}`);
+    if (!openai.client) throw new Error("OpenAI client is not initialized.");
+    
+    const { prompt } = params;
 
-    return adapter.generateImage({ ...params, task: config.model });
-  },
-
-  /**
-   * 调用MCP服务
-   * 专门用于本地MCP服务调用，如背景移除等
-   */
-  async callMCPService(task: string, method: string, data: any, options?: Record<string, any>): Promise<string> {
-    const config = AI_MODELS[task];
-    if (!config) throw new Error(`No model configuration found for MCP task: ${task}`);
-    
-    if (config.provider !== 'mcp') {
-      throw new Error(`Task ${task} is not configured for MCP provider`);
-    }
-    
-    const adapter = aiAdapters.mcp;
-    if (!adapter || !adapter.callMCPService) {
-      throw new Error('MCP adapter not available or does not support MCP service calls');
-    }
-    
-    return adapter.callMCPService({
-      task: config.model,
-      method,
-      data,
-      options: options || {}
+    const response = await openai.client.images.generate({
+        model: modelName,
+        prompt: prompt,
+        n: 1,
+        size: "1024x1024", // DALL-E 3 default size
+        response_format: 'b64_json',
     });
+    const b64_json = response.data?.[0]?.b64_json;
+    if (!b64_json) throw new Error("OpenAI did not return a base64 image.");
+    return `data:image/png;base64,${b64_json}`;
   },
 };
 
@@ -114,14 +193,14 @@ function validateByLooseSchema(value: any, schema: any, path: string = '$'): voi
       }
       const props = schema.properties || {};
       for (const key in value) {
-  if (props[key]) validateByLooseSchema(value[key], props[key], `${path}.${key}`);
+        if (props[key]) validateByLooseSchema(value[key], props[key], `${path}.${key}`);
       }
       break;
     }
     case 'ARRAY': {
       if (!Array.isArray(value)) throw new Error(`${path} expected ARRAY`);
       if (schema.items) {
-  value.forEach((v: any, idx: number) => validateByLooseSchema(v, schema.items, `${path}[${idx}]`));
+        value.forEach((v: any, idx: number) => validateByLooseSchema(v, schema.items, `${path}[${idx}]`));
       }
       break;
     }

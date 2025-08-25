@@ -48,12 +48,12 @@ export const textSpanSchema = {
 
 export const textSectionSchema = {
   "type": "STRING",
-  "description": "Unsupported type: import(\"/Users/wu/Brogent/MiaobiAgent/types\").TextSection"
+  "description": "Unsupported type: import(\"/Users/chengyizhen/Develop/Github/MiaobiAgent/types\").TextSection"
 };
 
 export const imageSectionSchema = {
   "type": "STRING",
-  "description": "Unsupported type: import(\"/Users/wu/Brogent/MiaobiAgent/types\").ImageSection"
+  "description": "Unsupported type: import(\"/Users/chengyizhen/Develop/Github/MiaobiAgent/types\").ImageSection"
 };
 
 export const layoutBoxSchema = {

@@ -1,4 +1,4 @@
-import { SchemaType } from './aiSchemaTypes';
+import { SchemaType } from './utils/aiSchemaTypes';
 import { Tool, CustomTool, LongArticleTemplate, PosterTemplate } from '../types';
 import { PREDEFINED_TOOLS } from "../constants";
 import { unifiedAIService } from './unifiedAIService';

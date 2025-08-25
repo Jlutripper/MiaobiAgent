@@ -1,4 +1,4 @@
-import { SchemaType } from './aiSchemaTypes';
+import { SchemaType } from './utils/aiSchemaTypes';
 import { ResultData, LongArticleTemplate, TextSection, ImageSection } from '../types';
 import { FONT_FAMILIES } from '../constants';
 import { unifiedAIService } from './unifiedAIService';

@@ -1,4 +1,4 @@
-import { SchemaType } from './aiSchemaTypes';
+import { SchemaType } from './utils/aiSchemaTypes';
 import { AspectRatio, ResultData, PosterTemplate, LayoutBox, ArticleSection, ImageSection } from '../types';
 import { unifiedAIService } from './unifiedAIService';
 import { layoutBoxSchema, textSpanSchema } from './generatedSchemas';
